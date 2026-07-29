@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rabbit — case study · Michael Mofina</title>
+<style>
+  :root{
+    --bg:#0c0b0a;
+    --ink:#f2efe9;
+    --body:#c6bfb6;
+    --dim:#96908a;
+    --line:#262220;
+    --orange:#ff4c00;
+    --orange-hi:#ff6a1f;
+    --glyph:#12100e;
+    --c-settings:#ff6a1f;
+    --c-gallery:#7ee6f2;
+    --c-remind:#e0622f;
+    --c-alarm:#57e86d;
+    --c-timer:#b9a5ff;
+    --c-music:#f5e642;
+    --sans:"Helvetica Neue",-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  body{
+    background:var(--bg);
+    color:var(--body);
+    font-family:var(--sans);
+    font-size:17px;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+    margin:0;
+    overflow-x:clip;
+  }
+  .wrap{max-width:720px;margin:0 auto;padding:0 24px}
+  a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dim)}
+  a:hover{border-bottom-color:var(--orange)}
+  a:focus-visible,button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--orange);outline-offset:3px}
+  ::selection{background:var(--orange);color:#0c0b0a}
+
+  header.top{
+    display:flex;justify-content:space-between;align-items:baseline;gap:16px;
+    padding-top:36px;
+  }
+  .name{font-weight:600;font-size:16px;color:var(--ink);letter-spacing:-.01em}
+  .top-meta{font-size:13px;color:var(--dim)}
+
+  .intro{padding:110px 0 30px}
+  h1{
+    font-size:clamp(34px,5vw,52px);
+    line-height:1.08;letter-spacing:-.03em;font-weight:700;
+    color:var(--orange);margin:0 0 28px;max-width:20ch;text-wrap:balance;
+  }
+  .lede{font-size:19px;line-height:1.65;color:var(--body);margin:0}
+  .lede strong{color:var(--ink);font-weight:600}
+
+  section{padding:84px 0 0}
+  section + section{margin-top:84px;border-top:1px solid var(--line)}
+  h2{
+    font-size:clamp(23px,3vw,28px);letter-spacing:-.02em;line-height:1.2;
+    color:var(--ink);font-weight:700;margin:0 0 26px;text-wrap:balance;
+  }
+  p{margin:0 0 20px}
+  p b{color:var(--ink);font-weight:600}
+
+  figure.artifact{margin:52px 0 8px;padding:0}
+  figcaption{
+    font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--dim);
+    margin:20px 0 0;text-align:center;
+  }
+  figcaption .k{color:var(--orange)}
+
+  .contact{margin:44px 0 0}
+  .contact a{
+    font-size:clamp(19px,2.6vw,24px);font-weight:600;letter-spacing:-.01em;color:var(--ink);
+    border-bottom:2px solid var(--orange);
+  }
+  footer.colophon{
+    margin:110px auto 0;padding:26px 24px 48px;border-top:1px solid var(--line);
+    max-width:720px;box-sizing:border-box;
+    display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;
+  }
+  footer.colophon p{font-size:12.5px;line-height:1.7;color:var(--dim);margin:0;max-width:52ch}
+  footer.colophon .sig{text-align:right;white-space:nowrap}
+
+  /* ================= r1 device ================= */
+  .r1-stage{display:flex;justify-content:center}
+  .r1{
+    width:min(440px,100%);aspect-ratio:1.06/1;
+    background:linear-gradient(145deg,#ff5c17,#f04400 62%,#d83c00);
+    border-radius:11%;position:relative;
+    box-shadow:
+      inset 0 2px 2px rgba(255,255,255,.32),
+      inset 0 -10px 24px rgba(120,28,0,.45),
+      0 30px 60px -24px rgba(0,0,0,.7);
+    display:flex;gap:5.5%;padding:6.5%;box-sizing:border-box;
+    user-select:none;-webkit-user-select:none;touch-action:pan-y;
+  }
+  .r1-screen{
+    flex:1 1 62%;background:#0a0908;border-radius:14px;position:relative;overflow:hidden;
+    box-shadow:inset 0 0 0 1px rgba(0,0,0,.9),inset 0 3px 10px rgba(0,0,0,.8);
+  }
+  .r1-right{flex:0 0 26%;display:flex;flex-direction:column;gap:9%;align-items:center}
+  .r1-cam{
+    width:100%;aspect-ratio:1.15/1;border-radius:18%;
+    background:linear-gradient(160deg,#d84105,#b83500);
+    box-shadow:inset 0 4px 9px rgba(80,18,0,.65),inset 0 -1px 1px rgba(255,255,255,.18);
+    display:grid;place-items:center;
+  }
+  .r1-lens{width:34%;aspect-ratio:1;border-radius:50%;
+    background:radial-gradient(circle at 36% 32%,#3a3a3d,#0c0c0e 70%);
+    box-shadow:0 1px 2px rgba(255,255,255,.2),inset 0 0 0 2px #000;
+  }
+  .r1-wheelwell{
+    width:64%;flex:1;border-radius:999px;
+    background:linear-gradient(180deg,#c33800,#e14a08 18% 82%,#c33800);
+    box-shadow:inset 0 5px 10px rgba(90,20,0,.7);
+    padding:9% 14%;box-sizing:border-box;display:flex;
+  }
+  .r1-wheel{
+    flex:1;border-radius:999px;border:none;cursor:pointer;padding:0;
+    background-color:#ff6a1f;
+    background-image:
+      linear-gradient(90deg,rgba(255,255,255,.34),rgba(255,255,255,0) 42%,rgba(60,12,0,.42)),
+      repeating-linear-gradient(180deg,rgba(70,15,0,.34) 0 5px,rgba(255,140,80,.22) 5px 9px,transparent 9px 15px);
+    box-shadow:inset 0 0 4px rgba(70,15,0,.5);
+    transition:background-position .5s cubic-bezier(.3,.7,.3,1);
+  }
+  .r1-btn{
+    position:absolute;right:-1.4%;top:56%;width:4.6%;aspect-ratio:1;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#3c3c3f,#101012 72%);
+    box-shadow:0 1px 2px rgba(0,0,0,.6);
+  }
+  .r1-status{
+    position:absolute;top:9px;right:12px;z-index:5;
+    font-family:var(--mono);font-size:10px;color:var(--glyph);
+    display:flex;align-items:center;gap:5px;opacity:.85;
+  }
+  .batt{width:15px;height:8px;border:1.5px solid var(--glyph);border-radius:2px;position:relative}
+  .batt::after{content:"";position:absolute;inset:1.5px 45% 1.5px 1.5px;background:var(--glyph)}
+  .batt::before{content:"";position:absolute;right:-4px;top:1.5px;width:2px;height:3.5px;background:var(--glyph)}
+
+  .cards{position:absolute;inset:0}
+  .card{
+    position:absolute;inset:0;display:grid;place-items:center;
+    transform:translateY(103%);
+    transition:transform .5s cubic-bezier(.65,.05,.3,1);
+    will-change:transform;
+  }
+  .card.is-active{transform:translateY(0)}
+  .card.is-above{transform:translateY(-103%)}
+  .card.no-anim{transition:none}
+  .card .lbl{
+    position:absolute;font-family:var(--mono);font-weight:600;font-size:12px;
+    color:var(--glyph);letter-spacing:.02em;display:flex;gap:6px;align-items:center;
+  }
+  .card .lbl-bottom{right:12px;bottom:9px}
+  .card .lbl-top{left:12px;top:9px;transform:rotate(180deg)}
+  .card svg{width:38%;height:auto;display:block}
+  .sr-live{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .cards-hint{
+    position:absolute;left:12px;bottom:9px;z-index:5;font-family:var(--mono);
+    font-size:9.5px;color:var(--glyph);opacity:.55;letter-spacing:.06em;
+  }
+
+  /* ================= browser vignettes ================= */
+  .browser{
+    background:#0f0e0d;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    box-shadow:0 26px 50px -28px rgba(0,0,0,.75);
+  }
+  .browser-bar{
+    display:flex;align-items:center;gap:8px;padding:11px 14px;
+    border-bottom:1px solid var(--line);background:#151312;
+  }
+  .browser-bar i{width:9px;height:9px;border-radius:50%;background:#3a3531;display:block}
+  .browser-url{
+    font-family:var(--mono);font-size:11px;color:var(--dim);
+    background:#0d0c0b;border:1px solid var(--line);border-radius:6px;
+    padding:4px 12px;margin-left:8px;flex:1;max-width:340px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+
+  .rh-nav{display:flex;align-items:center;justify-content:space-between;padding:16px 26px 0;font-size:12.5px;line-height:1.5}
+  .rh-logo{color:var(--ink);font-weight:600;letter-spacing:-.01em}
+  .rh-links{display:flex;gap:20px;align-items:center;color:var(--dim);flex-wrap:wrap}
+  .rh-links span.on{color:var(--ink)}
+  .pill{
+    display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.08em;
+    color:var(--orange);border:1px solid var(--orange);border-radius:999px;
+    padding:1px 7px;vertical-align:2px;margin-left:5px;text-transform:lowercase;
+  }
+
+  .tm{padding:34px clamp(18px,5vw,48px) 40px;text-align:center}
+  .tm h3{
+    font-size:clamp(38px,6.5vw,56px);font-weight:700;letter-spacing:-.045em;
+    color:var(--ink);margin:18px 0 10px;line-height:1;
+  }
+  .tm h3 .pill{font-size:11px;vertical-align:14px;padding:2px 10px}
+  .tm-sub{font-size:12.5px;color:var(--dim);max-width:46ch;margin:0 auto 30px;line-height:1.7}
+  .tm-input{
+    display:flex;gap:10px;align-items:center;max-width:540px;margin:0 auto 34px;
+    text-align:left;
+  }
+  .tm-input .lab{font-size:13px;color:var(--ink);white-space:nowrap;font-weight:600}
+  .tm-field{
+    flex:1;background:#161412;border:1px solid var(--line);border-radius:999px;
+    font-family:var(--mono);font-size:11.5px;color:var(--dim);padding:10px 18px;
+  }
+  .btn-orange{
+    background:var(--orange);color:#140700;border:none;border-radius:999px;
+    font-weight:600;font-size:12.5px;padding:10px 20px;white-space:nowrap;cursor:pointer;
+  }
+  .btn-orange:hover{background:var(--orange-hi)}
+  .tm-tabs{
+    display:flex;gap:22px;justify-content:flex-start;max-width:600px;margin:0 auto;
+    padding:0 2px 12px;border-bottom:1px solid var(--line);
+    font-size:12.5px;color:var(--dim);
+  }
+  .tm-tabs .on{color:var(--ink)}
+  .lesson{
+    display:flex;align-items:center;gap:16px;max-width:600px;margin:0 auto;
+    padding:16px 2px;border-bottom:1px solid var(--line);text-align:left;
+  }
+  .lesson:last-child{border-bottom:none}
+  .lesson .t{color:var(--ink);font-weight:600;font-size:13.5px;margin:0 0 3px}
+  .lesson .d{color:var(--dim);font-size:12px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lesson .grow{flex:1;min-width:0}
+  .lesson .when{font-family:var(--mono);font-size:10.5px;color:var(--dim);white-space:nowrap}
+  .chip{
+    font-family:var(--mono);font-size:10px;color:var(--ink);
+    background:#201d1a;border-radius:999px;padding:5px 12px;white-space:nowrap;
+  }
+  .chip .tri{color:var(--orange)}
+
+  .replay{padding:26px clamp(18px,4vw,40px) 30px}
+  .rp-title{font-size:13px;color:var(--ink);font-weight:600;margin:0 0 16px}
+  .rp-states{position:relative;min-height:132px}
+  .rp-state{position:absolute;inset:0;opacity:0;animation:rpcycle 13.5s infinite}
+  .rp-state.s2{animation-delay:4.5s}
+  .rp-state.s3{animation-delay:9s}
+  @keyframes rpcycle{0%{opacity:0}3%,30%{opacity:1}33.3%,100%{opacity:0}}
+  .rp-log{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin:0 0 8px;line-height:1.7;max-width:46ch}
+  .rp-fail{font-family:var(--mono);font-size:12px;color:#ff6b5e;font-weight:600;margin:0 0 8px}
+  .rp-ok{font-family:var(--mono);font-size:12px;color:#57e86d;font-weight:600;margin:0 0 8px}
+  .rp-actions{display:flex;gap:10px;margin-top:16px;align-items:center}
+  .rp-ghost{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:9px 18px}
+  .rp-btn{display:inline-block}
+
+  .lam{display:grid;grid-template-columns:5fr 6fr;gap:14px;padding:16px}
+  .lam-left{
+    background:#121010;border:1px solid var(--line);border-radius:10px;
+    padding:20px 20px 16px;display:flex;flex-direction:column;min-height:380px;
+  }
+  .lam-head{
+    font-family:var(--mono);font-size:10px;color:var(--dim);letter-spacing:.1em;margin:0 0 18px;
+    align-self:flex-start;border:1px solid var(--line);border-radius:6px;padding:5px 10px;background:#0d0c0b;
+  }
+  .lam-title{font-size:26px;letter-spacing:-.03em;color:var(--ink);margin:0 0 10px;font-weight:700;line-height:1.2}
+  .lam-desc{font-size:11.5px;color:var(--dim);line-height:1.7;margin:0 0 6px;max-width:40ch}
+  .lam-key{font-size:11.5px;color:var(--dim);line-height:1.7;margin:10px 0 18px;max-width:40ch;border-left:2px solid var(--orange);padding-left:12px}
+  .prompt-bubble{
+    align-self:flex-end;background:#242019;color:var(--body);
+    font-size:11.5px;line-height:1.6;border-radius:12px 12px 3px 12px;
+    padding:10px 14px;max-width:34ch;margin:0 0 16px;
+  }
+  .steps{display:flex;flex-direction:column;gap:8px;align-items:flex-start;margin:0 0 auto}
+  .step{
+    font-family:var(--mono);font-size:10.5px;color:var(--ink);
+    background:#000;border-radius:6px;padding:7px 11px;
+    opacity:0;transform:translateY(6px);
+    animation:stepcycle 12s infinite;
+  }
+  .step:nth-child(1){animation-delay:.6s}
+  .step:nth-child(2){animation-delay:2s}
+  .step:nth-child(3){animation-delay:3.4s}
+  .step:nth-child(4){animation-delay:4.8s}
+  @keyframes stepcycle{
+    0%{opacity:0;transform:translateY(6px)}
+    6%,82%{opacity:1;transform:translateY(0)}
+    92%,100%{opacity:0;transform:translateY(6px)}
+  }
+  .lam-controls{display:flex;gap:10px;margin:18px 0 0}
+  .lam-controls .tm-field{border-radius:8px;font-size:10.5px}
+  .lam-controls .btn-orange{border-radius:8px;font-size:11.5px}
+  .lam-right{
+    background:#f6f4f1;border-radius:10px;overflow:hidden;
+    display:flex;flex-direction:column;
+  }
+  .lam-right-bar{
+    background:#e9e6e1;color:#6b655e;font-family:var(--mono);font-size:10px;
+    padding:9px 14px;display:flex;justify-content:space-between;
+  }
+  .gsi{margin:auto;background:#fff;border:1px solid #e2ded8;border-radius:10px;padding:26px 30px;width:min(320px,80%);box-shadow:0 10px 30px rgba(60,50,40,.08)}
+  .gsi-logo{width:26px;height:26px;border-radius:50%;background:conic-gradient(#4285f4 0 25%, #34a853 0 50%, #fbbc05 0 75%, #ea4335 0);margin:0 0 14px;position:relative}
+  .gsi-logo::after{content:"";position:absolute;inset:6px;background:#fff;border-radius:50%}
+  .gsi .gsi-title{color:#1c1b1a;font-size:17px;margin:0 0 4px;font-weight:600;letter-spacing:-.01em}
+  .gsi p{color:#8a847c;font-size:11px;margin:0 0 18px}
+  .gsi .field{border:1px solid #d5d0c9;border-radius:6px;padding:9px 12px;font-size:11px;color:#8a847c;margin:0 0 16px}
+  .gsi .row{display:flex;justify-content:space-between;align-items:center}
+  .gsi .link{color:#3b78e7;font-size:11px;font-weight:600}
+  .gsi .next{background:#3b78e7;color:#fff;border-radius:999px;font-size:11px;font-weight:600;padding:7px 18px}
+
+  @media (max-width:840px){
+    .lam{grid-template-columns:1fr}
+    .lam-right{min-height:300px}
+  }
+  @media (max-width:560px){
+    .intro{padding:80px 0 20px}
+    section{padding:64px 0 0}
+    section + section{margin-top:64px}
+    .tm-input{flex-wrap:wrap}
+    .lesson .when{display:none}
+    .rh-links{gap:12px;font-size:11px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .step{animation:none;opacity:1;transform:none}
+    .card{transition:none}
+    .rp-state{animation:none;display:none}
+    .rp-state.s2{display:block;opacity:1;position:static}
+  }
+</style>
+</head>
+<body>
+
+<header class="top wrap">
+  <span class="name">Michael Mofina</span>
+  <span class="top-meta">rabbit · product design · 2024 – 2025</span>
+</header>
+
+<main class="wrap">
+
+  <div class="intro">
+    <h1>Crafting AI-powered interfaces for rabbit.</h1>
+    <p class="lede">From 2024 to early 2025 I was the main product designer on <strong>rabbitOS</strong>, the interface of the r1 — including the rabbitOS 2 redesign that runs on every r1 today. I worked with a couple of design colleagues and the industrial, brand, and engineering teams, and I designed the web experiences for teaching and directing the r1's agent: <strong>teach mode</strong> and the <strong>LAM playground</strong>. The screens below aren't screenshots. I rebuilt each one in code for this page.</p>
+  </div>
+
+  <section id="rabbitos">
+    <h2>rabbitOS — from wheel to touch</h2>
+
+    <p>The r1 launched with a constraint set from the top: the entire interface had to be navigated with the scroll wheel and a single button. No touch — even though the hardware had a perfectly good touch screen.</p>
+
+    <p>It sounded like a fun brief, and at first it was. But every comparable device we studied, the ones that genuinely worked without a touch screen, spread the load across several physical controls. We had one button, so everything in the system collapsed onto a single click, a double click, or a long press. Typing is where the constraint fell apart: you can't type with a wheel, so we made an exception and let people type on the touch screen, which gave the game away — it had been there all along. The timeline was short and the constraint wasn't mine to lift, so that's what shipped. The launch UX wasn't good. Reviewers said so, and they were right.</p>
+
+    <p>Then the problem got worse. The product kept gaining features (ordering food, playing music, more every month) and each one landed on an input model that was already past its limit. Patching it one screen at a time was never going to catch up.</p>
+
+    <p>rabbitOS 2 was the reset: <b>a card interface built for touch, with the wheel kept as a secondary input</b>, because the wheel is the most charming thing about the hardware. Each card does one thing, with a glyph drawn in the brand style — we built out a full icon set. There's nothing to memorize; you scroll until you see the thing you want. I designed it up to my last day at rabbit in early 2025, my colleagues took it the final mile, and it shipped shortly after. It's what runs on every r1 today. Pick one up and you're using this design.</p>
+
+    <figure class="artifact">
+      <div class="r1-stage">
+        <div class="r1" id="r1" tabindex="0" role="group" aria-label="Interactive rabbit r1 demo. Use arrow keys or click the wheel to flip through cards.">
+          <span class="sr-live" id="cardlive" aria-live="polite"></span>
+          <div class="r1-screen">
+            <div class="r1-status">44% <span class="batt"></span></div>
+            <div class="cards" id="cards">
+
+              <div class="card is-active" style="background:var(--c-settings)" data-name="settings">
+                <span class="lbl lbl-top">settings ✱</span>
+                <svg viewBox="0 0 100 100" aria-hidden="true">
+                  <g fill="#12100e">
+                    <g>
+                      <rect x="45" y="8" width="10" height="84" rx="4"/>
+                      <rect x="45" y="8" width="10" height="84" rx="4" transform="rotate(45 50 50)"/>
+                      <rect x="45" y="8" width="10" height="84" rx="4" transform="rotate(90 50 50)"/>
+                      <rect x="45" y="8" width="10" height="84" rx="4" transform="rotate(135 50 50)"/>
+                    </g>
+                    <circle cx="50" cy="50" r="26"/>
+                  </g>
+                  <circle cx="50" cy="50" r="11" style="fill:var(--c-settings)"/>
+                </svg>
+                <span class="lbl lbl-bottom">✱ settings</span>
+              </div>
+
+              <div class="card" style="background:var(--c-gallery)" data-name="magic gallery">
+                <span class="lbl lbl-top">magic gallery ✦</span>
+                <svg viewBox="0 0 100 100" aria-hidden="true">
+                  <rect x="14" y="14" width="72" height="72" rx="14" fill="none" stroke="#12100e" stroke-width="8"/>
+                  <path d="M50 28 L56 44 L72 50 L56 56 L50 72 L44 56 L28 50 L44 44 Z" fill="#12100e"/>
+                </svg>
+                <span class="lbl lbl-bottom">✦ magic gallery</span>
+              </div>
+
+              <div class="card" style="background:var(--c-remind)" data-name="reminders">
+                <span class="lbl lbl-top">reminders ⚑</span>
+                <svg viewBox="0 0 100 100" aria-hidden="true">
+                  <g fill="#12100e">
+                    <rect x="44" y="14" width="13" height="44" rx="6.5"/>
+                    <rect x="30" y="34" width="12" height="26" rx="6"/>
+                    <rect x="59" y="34" width="12" height="26" rx="6"/>
+                    <path d="M30 56 h41 v12 c0 12-9 20-20.5 20 S30 80 30 68 Z"/>
+                    <circle cx="50.5" cy="26" r="10" fill="none" stroke="#12100e" stroke-width="5" stroke-dasharray="7 6"/>
+                  </g>
+                </svg>
+                <span class="lbl lbl-bottom">⚑ reminders</span>
+              </div>
+
+              <div class="card" style="background:var(--c-alarm)" data-name="alarm">
+                <span class="lbl lbl-top">alarm ◷</span>
+                <svg viewBox="0 0 100 100" aria-hidden="true">
+                  <g fill="#12100e">
+                    <path d="M50 18 C33 18 26 31 26 46 L26 60 L18 70 L82 70 L74 60 L74 46 C74 31 67 18 50 18 Z"/>
+                    <circle cx="50" cy="80" r="7"/>
+                  </g>
+                </svg>
+                <span class="lbl lbl-bottom">◷ alarm</span>
+              </div>
+
+              <div class="card" style="background:var(--c-timer)" data-name="timer">
+                <span class="lbl lbl-top">timer ◔</span>
+                <svg viewBox="0 0 100 100" aria-hidden="true">
+                  <g fill="#12100e">
+                    <rect x="42" y="8" width="16" height="10" rx="3"/>
+                    <rect x="47" y="16" width="6" height="10"/>
+                  </g>
+                  <circle cx="50" cy="56" r="30" fill="none" stroke="#12100e" stroke-width="9"/>
+                  <path d="M50 56 L50 36" stroke="#12100e" stroke-width="8" stroke-linecap="round"/>
+                  <path d="M50 56 L64 62" stroke="#12100e" stroke-width="8" stroke-linecap="round"/>
+                </svg>
+                <span class="lbl lbl-bottom">◔ timer</span>
+              </div>
+
+              <div class="card" style="background:var(--c-music)" data-name="music">
+                <span class="lbl lbl-top">music ♪</span>
+                <svg viewBox="0 0 100 100" aria-hidden="true">
+                  <g fill="#12100e">
+                    <ellipse cx="36" cy="74" rx="14" ry="11"/>
+                    <rect x="44" y="20" width="9" height="56"/>
+                    <path d="M44 20 h9 c16 3 22 12 20 24 c-3-9-9-13-20-13 Z"/>
+                  </g>
+                </svg>
+                <span class="lbl lbl-bottom">♪ music</span>
+              </div>
+
+            </div>
+            <span class="cards-hint">scroll ↓</span>
+          </div>
+          <div class="r1-right">
+            <div class="r1-cam"><div class="r1-lens"></div></div>
+            <div class="r1-wheelwell"><button class="r1-wheel" id="wheel" aria-label="Scroll wheel — flips to the next card"></button></div>
+          </div>
+          <div class="r1-btn"></div>
+        </div>
+      </div>
+      <figcaption>the rabbitOS 2 card system, rebuilt in code — <span class="k">click the wheel</span> to flip through (then scroll or use ↑↓)</figcaption>
+    </figure>
+  </section>
+
+  <section id="teachmode">
+    <h2>teach mode — teaching the agent by showing it</h2>
+
+    <p>We started teach mode in 2024, before "agent" was a buzzword. Chat was still how everyone talked to AI, and there was no pattern to reference for what teaching an agent should look like, so we worked it out from first principles. The idea: open a virtual machine in your browser, describe what you're about to do, do it once, and rabbit turns the recording into a lesson it can repeat. Lessons could be shared with the community. The part I still think was right is that <b>you could trigger a lesson from the r1 itself</b> — ask the device in your pocket to order a pizza, and the lesson runs on a machine in the cloud while you get on with your day.</p>
+
+    <p>I designed the whole teach mode experience in rabbithole, the r1's companion portal: the landing and lesson library, recording sessions, community lessons, and the replay flow. It worked, but not reliably. So most of the design effort went into the moments around an agent that fails a lot: checking what it actually learned, handing off logins before a replay, and making "lesson failed, retry" a normal part of the loop instead of a dead end.</p>
+
+    <figure class="artifact">
+      <div class="browser">
+        <div class="browser-bar"><i></i><i></i><i></i><span class="browser-url">hole.rabbit.tech/teach-mode</span></div>
+        <nav class="rh-nav" aria-label="rabbithole navigation (recreation)">
+          <span class="rh-logo">rabbithole</span>
+          <div class="rh-links">
+            <span>journal</span><span>connections</span>
+            <span class="on">teach mode<span class="pill">alpha</span></span>
+            <span>settings</span>
+          </div>
+        </nav>
+        <div class="tm">
+          <h3>teach mode<span class="pill">alpha</span></h3>
+          <p class="tm-sub">record yourself performing a useful task on any website once — your rabbit can do similar tasks for you in the future.</p>
+          <div class="tm-input">
+            <span class="lab">teach a new lesson</span>
+            <span class="tm-field">enter URL here</span>
+            <button class="btn-orange" type="button" tabindex="-1">start teaching</button>
+          </div>
+          <div class="tm-tabs"><span class="on">community lessons</span><span>my lessons</span><span>my sessions</span></div>
+          <div class="lesson">
+            <div class="grow"><p class="t">Buy iPhone</p><p class="d">search for an iphone 14, and buy the smallest model in blue</p></div>
+            <span class="when">11h ago</span><span class="chip">▲ 13k</span><span class="chip"><span class="tri">▶</span> replay</span>
+          </div>
+          <div class="lesson">
+            <div class="grow"><p class="t">Buy a TV from Best Buy</p><p class="d">search for a flat screen tv, and buy the biggest oled model available under…</p></div>
+            <span class="when">yesterday</span><span class="chip">▲ 4.1k</span><span class="chip"><span class="tri">▶</span> replay</span>
+          </div>
+          <div class="lesson">
+            <div class="grow"><p class="t">Order a Pizza</p><p class="d">order a large pizza and have it ready for pickup at the nearest locat…</p></div>
+            <span class="when">1 week ago</span><span class="chip">▲ 1.9k</span><span class="chip"><span class="tri">▶</span> replay</span>
+          </div>
+        </div>
+      </div>
+      <figcaption>the teach mode landing in rabbithole, rebuilt in code</figcaption>
+    </figure>
+
+    <figure class="artifact">
+      <div class="browser">
+        <div class="browser-bar"><i></i><i></i><i></i><span class="browser-url">hole.rabbit.tech/teach-mode/replay</span></div>
+        <div class="replay">
+          <p class="rp-title">replay · Order a Pizza</p>
+          <div class="rp-states">
+            <div class="rp-state s1">
+              <p class="rp-log">replaying lesson — step 2 of 6</p>
+              <p class="rp-log">adding a large pepperoni pizza to the cart…</p>
+            </div>
+            <div class="rp-state s2">
+              <p class="rp-fail">✕ lesson failed</p>
+              <p class="rp-log">the site has changed since this lesson was recorded. your login and progress were saved.</p>
+              <div class="rp-actions"><span class="btn-orange rp-btn">retry</span><span class="rp-ghost">back to home</span></div>
+            </div>
+            <div class="rp-state s3">
+              <p class="rp-ok">✓ success</p>
+              <p class="rp-log">the lesson was replayed successfully.</p>
+              <div class="rp-actions"><span class="rp-ghost">replay again</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>the replay loop, rebuilt in code — it cycles through replaying, failing, and succeeding; the failure state was most of the design work</figcaption>
+    </figure>
+  </section>
+
+  <section id="lam">
+    <h2>LAM playground — describe it instead</h2>
+
+    <p>While teach mode was in alpha, agent models were improving fast enough to skip the demonstration entirely. That became the LAM playground, which we ran alongside teach mode as a second experiment: <b>type what you want, and the agent does it on a virtual machine</b> while an action log narrates each step in plain language next to the live view. You can pause mid-task to sign in, redirect it with a new instruction, and resume. It launched in rabbithole, and like teach mode, you could kick off a task from the r1 and let it run in the background.</p>
+
+    <p>Running the two side by side taught me something I still use in agent work: for most tasks, describing what you want works better than demonstrating it. But neither approach matters if the person can't see what the agent is doing and stop it when it goes wrong.</p>
+
+    <figure class="artifact">
+      <div class="browser">
+        <div class="browser-bar"><i></i><i></i><i></i><span class="browser-url">hole.rabbit.tech/lam-playground</span></div>
+        <div class="lam">
+          <div class="lam-left">
+            <p class="lam-head">LAM <span style="color:var(--orange)">playground</span> (web) ⌄</p>
+            <p class="lam-title">LAM <span class="pill">playground</span> (web)</p>
+            <p class="lam-desc">describe any task in natural language and it will be automatically performed for you on the web. make sure your r1 is powered on and connected to the internet.</p>
+            <p class="lam-key">you can pause the task at any time to log in if needed. your credentials will be securely stored.</p>
+            <p class="prompt-bubble">go to kayak.com and find the cheapest flight from San Francisco to New York that leaves next week.</p>
+            <div class="steps" role="list" aria-label="Agent action log (looping recreation)">
+              <span class="step" role="listitem">typing "kayak.com" in the url bar</span>
+              <span class="step" role="listitem">searching "cheapest flight from San Francisco to New York"</span>
+              <span class="step" role="listitem">selecting dates for "next week" (Sep 24th)</span>
+              <span class="step" role="listitem">paused</span>
+            </div>
+            <div class="lam-controls">
+              <span class="tm-field">now only show nonstop flights</span>
+              <button class="btn-orange" type="button" tabindex="-1">▶ resume</button>
+            </div>
+          </div>
+          <div class="lam-right">
+            <div class="lam-right-bar"><span>LAM playground</span><span>paused</span></div>
+            <div class="gsi">
+              <div class="gsi-logo"></div>
+              <p class="gsi-title">Sign in</p>
+              <p>Use your Google Account</p>
+              <div class="field">Email or phone</div>
+              <div class="row"><span class="link">Create account</span><span class="next">Next</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>the LAM playground, rebuilt in code — the agent narrates each step; here the user has paused to sign in</figcaption>
+    </figure>
+  </section>
+
+  <section id="since">
+    <h2>Since rabbit</h2>
+
+    <p>I'm at Doist now, designing Todoist. The last thing I shipped is ramble: you talk out loud and your task list builds itself as you speak; change your mind mid-sentence and it edits what it already wrote. I'm also the sole designer on a new automations product, not yet launched, where you describe what you want in natural language and agents assemble a repeatable automation connected to your tools over MCP. Of everything on this page, it's the closest to the rabbit experiments above: the same problems, with much better technology.</p>
+
+    <p>Day to day I work as much in code as in Figma. I ship my own PRs with Claude Code, and my prototypes tend to be working software rather than clickthroughs. This page is one of them.</p>
+
+    <p class="contact"><a href="mailto:michael.mofina@icloud.com">michael.mofina@icloud.com</a></p>
+  </section>
+
+</main>
+
+<footer class="colophon">
+  <p>The screens above are code recreations of shipped rabbit work, rebuilt for this page: keyboard-navigable, screen-reader labeled, and they respect reduced-motion settings. All rabbit product IP belongs to rabbit inc.</p>
+  <p class="sig">Michael Mofina · 2026</p>
+</footer>
+
+<script>
+(function(){
+  var device = document.getElementById('r1');
+  var wheel = document.getElementById('wheel');
+  var live = document.getElementById('cardlive');
+  var cards = Array.prototype.slice.call(document.querySelectorAll('#cards .card'));
+  var n = cards.length, idx = 0, wheelPos = 0, armed = false;
+
+  function render(){
+    cards.forEach(function(c,i){
+      var off = (i - idx + n) % n;
+      var state = off === 0 ? 'active' : (off === n - 1 ? 'above' : 'below');
+      var prev = c.dataset.state || state;
+      c.classList.toggle('no-anim', prev !== 'active' && state !== 'active');
+      c.classList.toggle('is-active', state === 'active');
+      c.classList.toggle('is-above', state === 'above');
+      c.setAttribute('aria-hidden', state === 'active' ? 'false' : 'true');
+      c.dataset.state = state;
+    });
+    live.textContent = cards[idx].dataset.name;
+  }
+  function step(dir){
+    idx = (idx + dir + n) % n;
+    wheelPos += dir * 26;
+    wheel.style.backgroundPosition = '0 0, 0 ' + wheelPos + 'px';
+    render();
+  }
+
+  wheel.addEventListener('click', function(){ armed = true; step(1); });
+  cards.forEach(function(c){ c.addEventListener('click', function(){ armed = true; step(1); }); });
+  device.addEventListener('focus', function(){ armed = true; });
+  device.addEventListener('mouseleave', function(){ armed = false; });
+
+  device.addEventListener('keydown', function(e){
+    if(e.key === 'ArrowDown' || e.key === 'ArrowRight'){ e.preventDefault(); step(1); }
+    if(e.key === 'ArrowUp' || e.key === 'ArrowLeft'){ e.preventDefault(); step(-1); }
+  });
+
+  var lastWheel = 0;
+  device.addEventListener('wheel', function(e){
+    if(!armed) return;
+    e.preventDefault();
+    var now = Date.now();
+    if(now - lastWheel < 450) return;
+    lastWheel = now;
+    step(e.deltaY > 0 ? 1 : -1);
+  }, {passive:false});
+
+  var touchY = null, touchScroll = 0;
+  device.addEventListener('touchstart', function(e){
+    touchY = e.touches[0].clientY;
+    touchScroll = window.scrollY;
+  }, {passive:true});
+  device.addEventListener('touchend', function(e){
+    if(touchY === null) return;
+    var dy = e.changedTouches[0].clientY - touchY;
+    if(Math.abs(window.scrollY - touchScroll) < 6 && Math.abs(dy) > 30) step(dy < 0 ? 1 : -1);
+    touchY = null;
+  }, {passive:true});
+
+  render();
+})();
+</script>
+
+</body>
+</html>
