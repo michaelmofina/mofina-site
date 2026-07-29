@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Michael Mofina — Product Designer</title>
+<meta name="description" content="Michael Mofina is a product designer at Todoist, based in Toronto. Previously rabbit, and Apple by way of Critical Mass.">
+<style>
+/* ---------------------------------------------------------------
+   poster — the typographic variant.
+   One headline is the site. Career history is a color system
+   that only appears when you reach for it.
+   --------------------------------------------------------------- */
+
+@font-face {
+  font-family: "General Sans";
+  src: url("../assets/fonts/GeneralSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --paper: #fdfdfb;
+  --ink: 22 22 22;               /* every gray is this ink at an alpha */
+  --todoist: #e44332;
+  --rabbit: #ff4d06;
+  --apple: #6e6e73;
+  --indep: #197a7a;
+}
+
+* { margin: 0; }
+
+html { hyphens: none; -webkit-hyphens: none; }
+
+body {
+  background: var(--paper);
+  color: rgb(var(--ink) / .85);
+  font-family: "General Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 400;
+  font-size: .95rem;
+  line-height: 1.6;
+  max-width: 46rem;
+  margin-inline: auto;
+  padding: 1.5rem;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+::selection { background: rgb(var(--ink)); color: var(--paper); }
+
+a { color: inherit; }
+a:focus-visible { outline: 2px solid rgb(var(--ink) / .85); outline-offset: 3px; }
+
+/* ---- entrance: the only thing that animates on load ---- */
+
+.fade {
+  opacity: 0;
+  transform: translateY(10px);
+  animation: fadeUp .55s ease forwards;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+@keyframes fadeUp { to { opacity: 1; transform: none; } }
+
+/* ---- header ---- */
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding-block: .25rem;
+}
+
+.place { color: rgb(var(--ink) / .5); }
+
+/* mofi easter egg: hover the name, "mofi" gets a dashed underline
+   and a small gloss appears below. */
+.mofina { position: relative; }
+.mofi {
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: .2em;
+  transition: text-decoration-color .2s ease;
+}
+.name:hover .mofi { text-decoration-color: rgb(var(--ink) / .55); }
+.gloss {
+  position: absolute;
+  top: calc(100% + .45rem);
+  left: 0;
+  white-space: nowrap;
+  font-size: .8rem;
+  color: rgb(var(--ink) / .5);
+  opacity: 0;
+  transition: opacity .25s ease .08s;
+  pointer-events: none;
+}
+.name:hover .gloss { opacity: 1; }
+
+/* ---- the headline ---- */
+
+.hero {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  /* keeps the poster centered even when the viewport is generous */
+  min-height: calc(100svh - 8rem);
+}
+
+h1 {
+  font-weight: 400;
+  font-size: clamp(2.6rem, 7.5vw, 5.6rem); /* capped a hair under 6rem so the hand-placed breaks never wrap */
+  line-height: 1.08;
+  letter-spacing: -.03em;
+  color: rgb(var(--ink) / .85);
+  text-wrap: balance;
+  margin-left: -.04em; /* optical alignment of the P against the column edge */
+}
+
+/* employer words: 2px hairline underline at rest,
+   brand-color flood on hover. */
+.w {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-decoration-color: rgb(var(--ink) / .15);
+  text-underline-offset: .14em;
+  padding: 0 .06em;
+  margin: 0 -.06em;
+  border-radius: 2px;
+  transition: background-color .18s ease, color .18s ease, text-decoration-color .18s ease;
+}
+.w-todoist { --c: var(--todoist); color: var(--todoist); }
+.w-rabbit  { --c: var(--rabbit); }
+.w-apple   { --c: var(--apple); }
+
+/* the flood is a pointer move; touch devices stay static */
+@media (hover: hover) and (pointer: fine) {
+  .w:hover {
+    background-color: var(--c);
+    color: var(--paper);
+    text-decoration-color: transparent;
+  }
+}
+a.w:focus-visible {
+  background-color: var(--c);
+  color: var(--paper);
+  text-decoration-color: transparent;
+}
+
+/* hand-placed desktop line breaks; mobile balances itself */
+@media (max-width: 699px) {
+  .db { display: none; }
+}
+
+/* ---- the one flourish: a penned squiggle under "Todoist." ---- */
+
+.tdwrap { position: relative; display: inline-block; }
+.tdwrap svg {
+  position: absolute;
+  left: .04em;
+  bottom: -.26em;
+  width: 100%;
+  height: .3em;
+  overflow: visible;
+  color: var(--todoist);
+}
+
+/* ---- work index ---- */
+
+.work {
+  margin-top: 45vh; /* the whitespace is the design */
+  list-style: none;
+  padding: 0;
+}
+.row {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr;
+  gap: .25rem 1rem;
+  padding-block: .3rem;
+}
+.org { color: rgb(var(--ink) / .5); transition: color .18s ease; }
+.items { color: rgb(var(--ink) / .85); transition: color .18s ease; }
+.yr { font-variant-numeric: tabular-nums; color: rgb(var(--ink) / .4); }
+.sep { color: rgb(var(--ink) / .4); }
+
+@media (hover: hover) and (pointer: fine) {
+  .row:hover .org,
+  .row:hover .items { color: var(--tint); }
+}
+
+/* the Apple joke — his own line, revealed on hover */
+.joke {
+  color: rgb(var(--ink) / .5);
+  opacity: 0;
+  transition: opacity .25s ease .1s, color .18s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .row:hover .joke { opacity: 1; color: var(--tint); }
+}
+
+@media (max-width: 699px) {
+  .row { grid-template-columns: 1fr; gap: 0; padding-block: .55rem; }
+  .gloss { display: none; }
+  .joke { display: none; } /* hover-only line; don't reserve a blank line on touch */
+}
+
+/* ---- dock + sign-off ---- */
+
+.dock { margin-top: 4.5rem; }
+.dock a {
+  color: rgb(var(--ink) / .85);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgb(var(--ink) / .12);
+  text-underline-offset: .18em;
+  transition: text-decoration-color .18s ease;
+}
+.dock a:hover { text-decoration-color: rgb(var(--ink) / .5); }
+
+.fin {
+  margin-top: 4.5rem;
+  margin-bottom: 1.5rem;
+  font-size: .8rem;
+  color: rgb(var(--ink) / .35);
+}
+
+/* ---- reduced motion: everything static, everything readable ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .fade { animation: none; opacity: 1; transform: none; }
+  * { transition: none !important; animation: none !important; }
+}
+</style>
+</head>
+<body>
+
+<header class="fade" style="--i:0">
+  <p class="name">michael <span class="mofina"><span class="mofi">mofi</span>na<span
+    class="gloss" aria-hidden="true">mo·fi — one step past hi·fi</span></span></p>
+  <p class="place">Toronto</p>
+</header>
+
+<main class="hero fade" style="--i:1">
+  <h1>Product designer<br class="db">
+    at <span class="tdwrap"><a class="w w-todoist" href="https://todoist.com">Todoist</a>.<!--
+      penned underline, drawn on load by the script below
+      --><svg aria-hidden="true" viewBox="0 0 220 14" preserveAspectRatio="none" fill="none">
+        <path d="M3.2 9.4 C 21 5.8, 37 11.2, 55 8.1 C 71 5.4, 84 10.6, 101 8.9 C 119 7.1, 131 4.6, 149 8.3 C 164 11.3, 181 6.2, 198 8.7 C 205 9.7, 211 8.1, 216.5 9.1"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+      </svg></span><br class="db">
+    Previously <span class="w w-rabbit">rabbit</span>,<br class="db">
+    and <span class="w w-apple">Apple</span> by way<br class="db">
+    of Critical Mass.</h1>
+</main>
+
+<ul class="work fade" style="--i:2" aria-label="Selected work">
+  <li class="row" style="--tint: var(--todoist)">
+    <span class="org">Todoist</span>
+    <span class="items">Ramble — voice capture <span class="yr">2025–26</span> <span class="sep" aria-hidden="true">·</span>
+      Automations platform <span class="yr">2025–26</span> <span class="sep" aria-hidden="true">·</span>
+      Cross-platform design <span class="yr">2026</span> <span class="sep" aria-hidden="true">·</span>
+      Shipped web PRs <span class="yr">2026</span></span>
+  </li>
+  <li class="row" style="--tint: var(--rabbit)">
+    <span class="org">rabbit</span>
+    <span class="items">r1 — from wheel to touch <span class="yr">2024</span> <span class="sep" aria-hidden="true">·</span>
+      teach mode <span class="yr">2024</span> <span class="sep" aria-hidden="true">·</span>
+      LAM playground <span class="yr">2025</span></span>
+  </li>
+  <li class="row" style="--tint: var(--apple)">
+    <span class="org">Apple via Critical Mass</span>
+    <span class="items">Marcom design <span class="yr">2021–24</span>
+      <span class="joke">Really good designs. Trust me.</span></span>
+  </li>
+  <li class="row" style="--tint: var(--indep)">
+    <span class="org">Independent</span>
+    <span class="items">EmergConnect — healthcare <span class="yr">2021–</span> <span class="sep" aria-hidden="true">·</span>
+      Projected interfaces <span class="yr">2023</span></span>
+  </li>
+</ul>
+
+<nav class="dock fade" style="--i:3" aria-label="Contact">
+  <a href="mailto:info@michaelmofina.com">Email</a>
+  <span class="sep" aria-hidden="true"> · </span>
+  <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
+</nav>
+
+<p class="fin fade" style="--i:4">fin.</p>
+
+<script>
+/* Draw the squiggle after the entrance stagger settles (~.7s).
+   Without JS, or with reduced motion, it simply sits fully drawn. */
+(function () {
+  var path = document.querySelector(".tdwrap path");
+  if (!path) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  var len = path.getTotalLength();
+  path.style.strokeDasharray = len;
+  path.style.strokeDashoffset = len;
+  path.getBoundingClientRect(); /* flush styles so the transition runs */
+  path.style.transition = "stroke-dashoffset .7s cubic-bezier(.4, 0, .2, 1) .95s";
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      path.style.strokeDashoffset = "0";
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

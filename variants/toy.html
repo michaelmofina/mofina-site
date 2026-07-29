@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Michael Mofina — Product Designer</title>
+<meta name="description" content="Michael Mofina — product designer at Todoist. Voice capture, automations, and cross-platform design. Toronto.">
+<meta name="theme-color" content="#fdfdfb">
+<style>
+/* ============================================================
+   michael mofina — "toy" variant
+   The dot over the i in "mofina" comes loose. Everything else
+   stays quiet. One typeface, one weight, alpha-composited ink.
+   ============================================================ */
+
+@font-face{
+  font-family:"General Sans";
+  src:url("../assets/fonts/GeneralSans-Regular.woff2") format("woff2");
+  font-weight:400;
+  font-style:normal;
+  font-display:swap;
+}
+
+:root{
+  --paper:#fdfdfb;
+  --ink:22,22,22;
+  --accent:#e44332;                 /* cycles as the ball bounces; JS resets it home */
+}
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+
+html{ background:var(--paper); }
+
+body{
+  font-family:"General Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-weight:400;
+  font-size:.95rem;
+  line-height:1.6;
+  color:rgba(var(--ink),.85);
+  min-height:100svh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+::selection{ background:var(--accent); color:var(--paper); }
+
+a{ color:inherit; }
+a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; border-radius:2px; }
+
+.page{
+  width:100%;
+  max-width:46rem;
+  padding:3rem 1.5rem;
+}
+
+/* ---- entrance: the only thing that animates on load ---- */
+.fade{
+  animation:fadeUp .55s cubic-bezier(.22,.61,.36,1) both;
+  animation-delay:var(--d,0ms);
+}
+@keyframes fadeUp{
+  from{ opacity:0; transform:translateY(10px); }
+  to{ opacity:1; transform:none; }
+}
+
+/* ---- header ---- */
+header{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:.35rem 1.5rem;
+}
+.name{
+  font-size:.95rem;
+  font-weight:400;
+  position:relative;
+  white-space:nowrap;      /* never break inside "mofina" */
+}
+.role{ color:rgba(var(--ink),.6); }
+
+/* sr-only: the real, readable name for screen readers */
+.sr-only{
+  position:absolute; width:1px; height:1px; margin:-1px; padding:0;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
+
+/* mo·fi easter egg */
+.name:hover .mofi,
+.name:hover .iwrap{      /* underline doesn't propagate into inline-blocks */
+  text-decoration:underline dashed rgba(var(--ink),.5);
+  text-decoration-thickness:1px;
+  text-underline-offset:.24em;
+}
+.gloss{
+  position:absolute; left:0; top:100%; margin-top:.4rem;
+  font-size:.8rem; color:rgba(var(--ink),.6);
+  white-space:nowrap; pointer-events:none;
+  opacity:0; transform:translateY(2px);
+  transition:opacity .3s ease .08s, transform .3s ease .08s;
+}
+.name:hover .gloss{ opacity:1; transform:none; }
+
+/* ---- the tittle / the ball -------------------------------------
+   The i in "mofina" is a dotless ı. The dot is rebuilt as #dotv,
+   a 10px circle scaled down to tittle size and parked exactly
+   where the tittle belongs (canvas-measured in JS). #dot is the
+   invisible grab halo around it. #marker sits on the baseline. */
+.iwrap{ position:relative; display:inline-block; }
+#marker{ display:inline-block; width:0; height:0; }
+
+#dot{
+  position:absolute;
+  left:var(--rx,50%); top:var(--ry,.12em);   /* refined by JS */
+  width:26px; height:26px; margin:-13px 0 0 -13px;
+  border-radius:50%;
+  cursor:grab;
+  touch-action:none;      /* the page never scrolls while dragging the ball */
+  z-index:5;
+}
+@media (pointer:coarse){
+  #dot{ width:48px; height:48px; margin:-24px 0 0 -24px; }
+}
+#dot.free{ position:fixed; left:0; top:0; z-index:99; }
+#dot.static{ cursor:auto; pointer-events:none; }   /* reduced motion: just an i */
+
+#dotv{
+  position:absolute; left:50%; top:50%;
+  width:10px; height:10px; margin:-5px 0 0 -5px;
+  border-radius:50%;
+  background:rgba(var(--ink),.85);   /* matches the name ink exactly */
+  transform:scale(var(--restS,.2));
+  transition:background-color .25s ease;
+  will-change:transform;
+}
+#dot.free #dotv{ background:var(--accent); }
+
+body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
+body.grabbing #dot{ cursor:grabbing; }
+
+/* idle affordance: one tiny hop, 6s in, once */
+#dot.hop{ animation:hop .45s cubic-bezier(.34,1.4,.5,1); }
+@keyframes hop{
+  0%,100%{ transform:none; }
+  40%{ transform:translateY(-3px); }
+}
+
+/* ---- lede ---- */
+.lede{
+  margin-top:3.5rem;
+  font-size:clamp(1.6rem,3.6vw,2.5rem);
+  line-height:1.2;
+  letter-spacing:-.02em;
+}
+.lede a{
+  color:var(--accent);
+  text-decoration:none;
+  transition:color .25s ease;
+}
+.lede a:hover{
+  text-decoration:underline;
+  text-decoration-thickness:.045em;
+  text-underline-offset:.12em;
+}
+
+hr{
+  border:0;
+  border-top:1px solid rgba(var(--ink),.12);
+  margin:2.75rem 0;
+}
+
+/* ---- work index ---- */
+.group{
+  display:grid;
+  grid-template-columns:10rem 1fr;
+  gap:.3rem 2rem;
+  align-items:baseline;
+}
+.group + .group{ margin-top:1.6rem; }
+.org{ font-size:.95rem; font-weight:400; margin:0; color:rgba(var(--ink),.85); }
+.row{
+  display:flex;
+  align-items:baseline;
+  gap:.75rem;
+  transition:opacity .22s ease, color .22s ease;
+}
+.row + .row{ margin-top:.3rem; }
+.year{
+  margin-left:auto;
+  font-variant-numeric:tabular-nums;
+  color:rgba(var(--ink),.4);
+  white-space:nowrap;
+}
+.joke{
+  font-size:.8rem;
+  color:rgba(var(--ink),.6);
+  opacity:0;
+  transition:opacity .3s ease .05s;
+}
+
+/* hover: hovered row takes its employer's tint, the rest step back */
+@media (hover:hover){
+  .index:hover .row{ opacity:.4; }
+  .index:hover .row:hover{ opacity:1; color:var(--tint,rgba(var(--ink),.85)); }
+  .index:hover .joke-row{ opacity:1; }
+  .group:hover .joke{ opacity:1; }
+}
+
+/* ---- dock + fin ---- */
+.dock{ display:flex; gap:2rem; margin-top:3.5rem; }
+.dock a{
+  color:rgba(var(--ink),.6);
+  text-decoration:underline;
+  text-decoration-color:rgba(var(--ink),.18);
+  text-underline-offset:.22em;
+  transition:color .2s ease, text-decoration-color .2s ease;
+}
+.dock a:hover{ color:var(--accent); text-decoration-color:var(--accent); }
+
+.fin{
+  margin-top:3.5rem;
+  font-size:.8rem;
+  color:rgba(var(--ink),.35);
+}
+
+/* ---- small screens ---- */
+@media (max-width:640px){
+  .gloss{ display:none; }
+  .group{ grid-template-columns:1fr; gap:.35rem 0; }
+  .org{ margin-bottom:.15rem; }
+}
+
+/* ---- reduced motion: fully static, fully readable ---- */
+@media (prefers-reduced-motion: reduce){
+  *{ animation:none !important; transition:none !important; }
+  .fade{ opacity:1; transform:none; }
+}
+</style>
+</head>
+<body>
+
+<main class="page">
+
+  <header class="fade" style="--d:0ms">
+    <h1 class="name">
+      <span class="sr-only">michael mofina</span><!--
+   --><span aria-hidden="true">michael <span class="mofi">mof<span class="iwrap" id="iwrap">&#305;<span id="marker"></span><span id="dot"><span id="dotv"></span></span></span></span>na</span>
+      <span class="gloss" aria-hidden="true">mo·fi — one step past hi·fi</span>
+    </h1>
+    <p class="role">Product Designer · Toronto</p>
+  </header>
+
+  <p class="lede fade" style="--d:70ms">Currently at <a href="https://todoist.com">Todoist</a>.</p>
+
+  <hr class="fade" style="--d:140ms">
+
+  <div class="index">
+
+    <section class="group fade" style="--d:210ms; --tint:#e44332">
+      <h2 class="org">Todoist</h2>
+      <div>
+        <div class="row"><span>Ramble — voice capture</span><span class="year">2025–26</span></div>
+        <div class="row"><span>Automations platform</span><span class="year">2025–26</span></div>
+        <div class="row"><span>Cross-platform design</span><span class="year">2026</span></div>
+        <div class="row"><span>Shipped web PRs</span><span class="year">2026</span></div>
+      </div>
+    </section>
+
+    <section class="group fade" style="--d:280ms; --tint:#ff4d06">
+      <h2 class="org">rabbit</h2>
+      <div>
+        <div class="row"><span>r1 — from wheel to touch</span><span class="year">2024</span></div>
+        <div class="row"><span>teach mode</span><span class="year">2024</span></div>
+        <div class="row"><span>LAM playground</span><span class="year">2025</span></div>
+      </div>
+    </section>
+
+    <section class="group fade" style="--d:350ms; --tint:#6e6e73">
+      <h2 class="org">Apple via Critical Mass</h2>
+      <div>
+        <div class="row"><span>Marcom design</span><span class="year">2021–24</span></div>
+        <div class="row joke-row" aria-hidden="true"><span class="joke">Really good designs. Trust me.</span></div>
+      </div>
+    </section>
+
+    <section class="group fade" style="--d:420ms; --tint:#197a7a">
+      <h2 class="org">Independent</h2>
+      <div>
+        <div class="row"><span>EmergConnect — healthcare</span><span class="year">2021–</span></div>
+        <div class="row"><span>Projected interfaces</span><span class="year">2023</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <nav class="dock fade" style="--d:490ms" aria-label="Contact">
+    <a href="mailto:info@michaelmofina.com">Email</a>
+    <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
+  </nav>
+
+  <footer class="fade" style="--d:560ms">
+    <p class="fin">fin.</p>
+  </footer>
+
+</main>
+
+<script>
+(() => {
+"use strict";
+
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const root   = document.documentElement;
+
+// A filled transform animation turns an ancestor into the containing block
+// for position:fixed — clear each entrance animation once it has played.
+document.querySelectorAll(".fade").forEach(el => {
+  el.addEventListener("animationend", () => { el.style.animation = "none"; }, { once:true });
+});
+
+const iwrap  = document.getElementById("iwrap");
+const marker = document.getElementById("marker");
+const dot    = document.getElementById("dot");
+const dotv   = document.getElementById("dotv");
+
+/* ================================================================
+   1 · Tittle placement — canvas-measured so the fake dot sits
+   exactly where the font's own tittle would. We draw "i" at 100px,
+   scan the pixels above the x-height (the dot is the only ink up
+   there) and read back its centre and diameter.
+   ================================================================ */
+let tit = null;
+function measureTittle(){
+  try{
+    const cs = getComputedStyle(iwrap);
+    const c = document.createElement("canvas");
+    c.width = 200; c.height = 200;
+    const ctx = c.getContext("2d", { willReadFrequently:true });
+    const S = 100, OX = 50, BASE = 140;
+    ctx.font = "400 " + S + "px " + cs.fontFamily;
+    const xh = ctx.measureText("ı").actualBoundingBoxAscent || S * .52;
+    ctx.fillStyle = "#000";
+    ctx.fillText("i", OX, BASE);
+    const img = ctx.getImageData(0, 0, 200, 200).data;
+    const maxRow = Math.max(4, Math.round(BASE - xh - 2)); // above x-height only
+    let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
+    for(let y = 0; y < maxRow; y++)
+      for(let x = 0; x < 200; x++)
+        if(img[(y * 200 + x) * 4 + 3] > 40){
+          if(x < x0) x0 = x; if(x > x1) x1 = x;
+          if(y < y0) y0 = y; if(y > y1) y1 = y;
+        }
+    if(x1 < 0) return null;
+    const s = parseFloat(cs.fontSize) / S;
+    return {
+      d: ((x1 - x0 + 1) + (y1 - y0 + 1)) / 2 * s,   // dot diameter
+      cx: ((x0 + x1 + 1) / 2 - OX) * s,             // centre, from glyph origin
+      cyAbove: (BASE - (y0 + y1 + 1) / 2) * s       // centre, above baseline
+    };
+  }catch(e){ return null; }
+}
+
+let restS = .2;             // scale that shrinks the 10px ball to tittle size
+const rest = { x:0, y:0 };  // tittle centre, relative to #iwrap
+
+function placeDot(remeasure){
+  if(remeasure || !tit) tit = measureTittle();
+  const fs = parseFloat(getComputedStyle(iwrap).fontSize);
+  const wr = iwrap.getBoundingClientRect();
+  const t = tit || { d: fs * .13, cx: wr.width / 2, cyAbove: fs * .64 };
+  const baseY = marker.getBoundingClientRect().top; // 0×0 inline-block sits on the baseline
+  rest.x = t.cx;
+  rest.y = (baseY - wr.top) - t.cyAbove;
+  restS = Math.max(1.5, t.d) / 10;
+  iwrap.style.setProperty("--rx", rest.x + "px");
+  iwrap.style.setProperty("--ry", rest.y + "px");
+  iwrap.style.setProperty("--restS", restS);
+}
+placeDot(true);
+if(document.fonts && document.fonts.ready)
+  document.fonts.ready.then(() => placeDot(true));
+
+/* Reduced motion: the dot is just an i. No physics, no sound, no handlers. */
+if(reduced){
+  dot.classList.add("static");
+  addEventListener("resize", () => placeDot());
+  return;
+}
+
+/* ================================================================
+   2 · Physics
+   ================================================================ */
+const ACCENTS = ["#e44332", "#ff4d06", "#2b47ff", "#197a7a", "#b07a1c"];
+let accIdx = 0, celebrated = false;
+
+let state = "rest";           // rest | drag | free | home
+let x = 0, y = 0, vx = 0, vy = 0;
+let raf = 0, lastT = 0;
+let detachT = 0, homeT = 0, lastS = 1;
+const squash = { amt:0, axis:"y", t:-1 };
+const target = { x:0, y:0 };
+const samples = [];
+let pointerId = null, interacted = false;
+
+const R = 5;                  // ball radius
+const G = 2200;               // gravity, px/s²
+const REST = .72;             // restitution
+const MAXV = 3200;            // fling speed cap
+const GRAB = matchMedia("(pointer:coarse)").matches ? 24 : 13;
+
+const outCubic = e => 1 - Math.pow(1 - e, 3);
+const outBack  = e => { const c = 1.35; e -= 1; return 1 + (c + 1) * e * e * e + c * e * e; };
+const inOut    = e => e < .5 ? 4 * e * e * e : 1 - Math.pow(-2 * e + 2, 3) / 2;
+
+/* ---- audio: lazy, gesture-gated, synthesized, quiet ---- */
+let AC = null, lastBoop = 0;
+function ensureAudio(){
+  try{
+    if(!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if(AC.state === "suspended") AC.resume();
+  }catch(e){ AC = null; }
+}
+function tone(freq, glide, dur, gain, at){
+  if(!AC) return;
+  const t0 = AC.currentTime + (at || 0);
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(freq, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(40, glide || freq), t0 + dur);
+  g.gain.setValueAtTime(.0001, t0);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + .008);
+  g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t0); o.stop(t0 + dur + .03);
+}
+const pop = () => tone(440, 720, .07, .06);                        // detach
+function boop(speed){                                              // impact
+  const now = performance.now();
+  if(now - lastBoop < 70) return;
+  lastBoop = now;
+  const s = Math.min(speed, 2200);
+  tone(140 + s * .16, 110 + s * .10, .09, Math.min(.12, .03 + (s / 2200) * .08));
+}
+const tada = () => {                                               // first accent flip
+  tone(523.25, 523.25, .10, .055);
+  tone(783.99, 783.99, .16, .065, .105);
+};
+
+/* ---- accent ---- */
+function setAccent(i){ accIdx = i; root.style.setProperty("--accent", ACCENTS[i]); }
+function cycleAccent(){
+  setAccent((accIdx + 1) % ACCENTS.length);
+  if(!celebrated){ celebrated = true; tada(); }
+}
+
+function restCenter(){  // viewport coords of the docked tittle
+  const wr = iwrap.getBoundingClientRect();
+  return { x: wr.left + rest.x, y: wr.top + rest.y };
+}
+
+/* ---- grab / drag / fling ---- */
+function pushSample(e){
+  const t = performance.now();
+  samples.push({ x:e.clientX, y:e.clientY, t });
+  while(samples.length && t - samples[0].t > 110) samples.shift();
+}
+function grab(e){
+  interacted = true;
+  ensureAudio();
+  if(state === "rest"){
+    const c = restCenter();
+    x = c.x; y = c.y; vx = vy = 0;
+    dot.classList.add("free");
+    document.body.appendChild(dot);   // escape any ancestor containing block
+    detachT = performance.now();
+    pop();
+  } else if(state === "home"){
+    // resume the grow animation from the ball's current size
+    const p = Math.max(0, Math.min(1, (lastS - restS) / (1 - restS)));
+    detachT = performance.now() - 160 * p;
+  }
+  state = "drag";
+  pointerId = e.pointerId;
+  samples.length = 0;
+  pushSample(e);
+  target.x = e.clientX; target.y = e.clientY;
+  document.body.classList.add("grabbing");
+  addEventListener("pointermove", onMove);
+  addEventListener("pointerup", onUp);
+  addEventListener("pointercancel", onUp);
+  e.preventDefault();
+  start();
+}
+function onMove(e){
+  if(e.pointerId !== pointerId) return;
+  target.x = e.clientX; target.y = e.clientY;
+  pushSample(e);
+}
+function releasePointer(){
+  removeEventListener("pointermove", onMove);
+  removeEventListener("pointerup", onUp);
+  removeEventListener("pointercancel", onUp);
+  document.body.classList.remove("grabbing");
+  pointerId = null;
+}
+function onUp(e){
+  if(e.pointerId !== pointerId) return;
+  releasePointer();
+  // fling with the velocity of the last ~100ms of pointer samples
+  const a = samples[0], b = samples[samples.length - 1];
+  if(a && b && b.t - a.t > 15){
+    const dt = (b.t - a.t) / 1000;
+    vx = (b.x - a.x) / dt;
+    vy = (b.y - a.y) / dt;
+    const sp = Math.hypot(vx, vy);
+    if(sp > MAXV){ vx *= MAXV / sp; vy *= MAXV / sp; }
+  }
+  state = "free";
+}
+
+dot.addEventListener("pointerdown", grab);
+/* near-miss grabs while the ball is loose */
+addEventListener("pointerdown", e => {
+  if(state !== "free" || dot.contains(e.target)) return;
+  if(Math.hypot(e.clientX - x, e.clientY - y) <= GRAB + R) grab(e);
+});
+
+/* ---- home ---- */
+function goHome(){
+  if(state === "rest" || state === "home") return;
+  if(pointerId !== null) releasePointer();
+  state = "home";
+  homeT = performance.now();
+  start();
+}
+function dock(){
+  state = "rest";
+  dot.classList.remove("free");
+  iwrap.appendChild(dot);           // back to its seat in the name
+  dot.style.transform = "";
+  dotv.style.transform = "";
+  squash.t = -1;
+  setAccent(0);   // back to Todoist red
+}
+addEventListener("keydown", e => { if(e.key === "Escape") goHome(); });
+addEventListener("dblclick", goHome);
+
+/* ---- impacts ---- */
+function hit(axis, speed, t){
+  if(speed > 110) boop(speed);
+  if(speed > 140){
+    squash.amt = Math.min(.42, speed / 2400);
+    squash.axis = axis;
+    squash.t = t;
+  }
+  if(speed > 520) cycleAccent();
+}
+
+/* ---- the loop ---- */
+function start(){
+  if(!raf){ lastT = performance.now(); raf = requestAnimationFrame(step); }
+}
+function step(t){
+  raf = 0;
+  const dt = Math.min((t - lastT) / 1000, 1 / 30); // capped: no tunneling
+  lastT = t;
+
+  if(state === "drag"){
+    const k = 1 - Math.exp(-dt * 30);   // slight spring lag behind the pointer
+    x += (target.x - x) * k;
+    y += (target.y - y) * k;
+  }
+  else if(state === "free"){
+    vy += G * dt;
+    x += vx * dt;
+    y += vy * dt;
+    const w = innerWidth, h = innerHeight;
+    if(x < R && vx < 0)          { x = R;     hit("x", -vx, t); vx = -vx * REST; }
+    else if(x > w - R && vx > 0) { x = w - R; hit("x",  vx, t); vx = -vx * REST; }
+    if(y < R && vy < 0)          { y = R;     hit("y", -vy, t); vy = -vy * REST; }
+    else if(y > h - R && vy > 0) { y = h - R; hit("y",  vy, t); vy = -vy * REST;
+                                   if(-vy < 60) vy = 0; }        // too slow: settle
+    if(y >= h - R - .5 && vy === 0){                             // rolling
+      vx *= Math.exp(-3.5 * dt);
+      if(Math.abs(vx) < 6) vx = 0;
+    }
+  }
+  else if(state === "home"){
+    const c = restCenter();
+    const K = 190, D = 21;   // ω≈13.8, ζ≈0.76 → a touch of overshoot, ~.5s settle
+    vx += (-K * (x - c.x) - D * vx) * dt;
+    vy += (-K * (y - c.y) - D * vy) * dt;
+    x += vx * dt;
+    y += vy * dt;
+    if(Math.hypot(x - c.x, y - c.y) < .8 && Math.hypot(vx, vy) < 25
+       && t - homeT > 260){ dock(); return; }
+  }
+
+  /* the dot must never get lost */
+  if(!isFinite(x + y + vx + vy)){
+    const c = restCenter();
+    x = c.x; y = c.y; vx = vy = 0;
+    dock(); return;
+  }
+
+  render(t);
+
+  const sleeping = state === "free" && vx === 0 && vy === 0
+                   && y >= innerHeight - R - .5 && squash.t < 0;
+  if(state !== "rest" && !sleeping) raf = requestAnimationFrame(step);
+}
+
+function render(t){
+  dot.style.transform = "translate3d(" + x.toFixed(2) + "px," + y.toFixed(2) + "px,0)";
+
+  // overall size: pops from tittle → ball on detach, shrinks back going home
+  let s;
+  if(state === "home"){
+    s = 1 + (restS - 1) * inOut(Math.min(1, (t - homeT) / 450));
+  } else {
+    s = restS + (1 - restS) * outBack(Math.min(1, (t - detachT) / 160));
+  }
+  lastS = s;
+
+  // squash & stretch along the impact axis, ~120ms ease-out recovery
+  let sx = 1, sy = 1;
+  if(squash.t > 0){
+    const e = (t - squash.t) / 120;
+    if(e < 1){
+      const k = squash.amt * (1 - outCubic(Math.max(0, e)));
+      if(squash.axis === "y"){ sy = 1 - k; sx = 1 + k * .9; }
+      else                   { sx = 1 - k; sy = 1 + k * .9; }
+    } else squash.t = -1;
+  }
+  dotv.style.transform = "scale(" + (s * sx).toFixed(3) + "," + (s * sy).toFixed(3) + ")";
+}
+
+/* ---- keep it on screen ---- */
+addEventListener("resize", () => {
+  placeDot();
+  if(state === "free" || state === "drag"){
+    x = Math.min(Math.max(x, R), innerWidth - R);
+    y = Math.min(Math.max(y, R), innerHeight - R);
+    start();
+  }
+});
+
+/* ---- idle affordance: one tiny hop, once, 6s in ---- */
+setTimeout(() => {
+  if(state === "rest" && !interacted){
+    dot.classList.add("hop");
+    dot.addEventListener("animationend", () => dot.classList.remove("hop"), { once:true });
+  }
+}, 6000);
+
+})();
+</script>
+
+</body>
+</html>

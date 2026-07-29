@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Options · Michael Mofina</title>
+<meta name="robots" content="noindex">
+<style>
+  @font-face{
+    font-family:"General Sans";
+    src:url("assets/fonts/GeneralSans-Regular.woff2") format("woff2");
+    font-weight:400;font-style:normal;font-display:swap;
+  }
+  :root{ --paper:#fdfdfb; --ink:22,22,22; --accent:#e44332; }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--paper);color:rgba(var(--ink),.85);
+    font-family:"General Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:.95rem;line-height:1.6;-webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:46rem;margin:0 auto;padding:clamp(2rem,6vh,5rem) 1.5rem 4rem;
+    min-height:100svh;display:flex;flex-direction:column;justify-content:center}
+  h1{font-size:1rem;font-weight:400;margin:0 0 2.5rem;color:rgba(var(--ink),.5)}
+  ol{list-style:none;margin:0;padding:0}
+  li{border-top:1px solid rgba(var(--ink),.12)}
+  li:last-child{border-bottom:1px solid rgba(var(--ink),.12)}
+  a.opt{
+    display:grid;grid-template-columns:2.2rem 1fr auto;gap:1rem;align-items:baseline;
+    padding:1.1rem 0;color:inherit;text-decoration:none;transition:padding-left .2s ease;
+  }
+  a.opt:hover{padding-left:.6rem}
+  a.opt:hover .t{color:var(--accent)}
+  a.opt:focus-visible{outline:2px solid rgba(var(--ink),.85);outline-offset:3px}
+  .n{color:rgba(var(--ink),.35);font-variant-numeric:tabular-nums}
+  .t{transition:color .2s ease}
+  .d{display:block;color:rgba(var(--ink),.5);font-size:.85rem}
+  .k{color:rgba(var(--ink),.4);font-size:.85rem;white-space:nowrap}
+  @media (max-width:560px){ a.opt{grid-template-columns:2.2rem 1fr} .k{display:none} }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>michaelmofina.com — four directions, pick a favourite</h1>
+  <ol>
+    <li><a class="opt" href="index.html">
+      <span class="n">01</span>
+      <span><span class="t">quiet</span><span class="d">The one-page CV index. Calm, exact, nothing extra.</span></span>
+      <span class="k">the baseline</span>
+    </a></li>
+    <li><a class="opt" href="variants/toy.html">
+      <span class="n">02</span>
+      <span><span class="t">toy</span><span class="d">Same page, but the dot of the i comes loose. Fling it — it recolors the site.</span></span>
+      <span class="k">grab the tittle</span>
+    </a></li>
+    <li><a class="opt" href="variants/reel.html">
+      <span class="n">03</span>
+      <span><span class="t">reel</span><span class="d">Work as a snap-scroll shelf of cards, every visual drawn in CSS.</span></span>
+      <span class="k">drag sideways</span>
+    </a></li>
+    <li><a class="opt" href="variants/poster.html">
+      <span class="n">04</span>
+      <span><span class="t">poster</span><span class="d">One giant sentence. Employers wear their brand colors on hover.</span></span>
+      <span class="k">hover the names</span>
+    </a></li>
+  </ol>
+</div>
+</body>
+</html>

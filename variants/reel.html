@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Michael Mofina — Product Designer</title>
+<meta name="description" content="Michael Mofina is a product designer at Todoist, based in Toronto. Previously rabbit, and Apple by way of Critical Mass.">
+<style>
+/* ------------------------------------------------------------------
+   reel — michael mofina
+   One typeface, one weight. Every visual on this page is drawn in CSS.
+   ------------------------------------------------------------------ */
+
+@font-face {
+  font-family: "General Sans";
+  src: url("../assets/fonts/GeneralSans-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --paper: #fdfdfb;
+  --ink: 22, 22, 22;            /* all grays are alpha-composited ink */
+  --red: #e44332;               /* Todoist */
+  --rabbit: #ff4d06;
+  --teal: #197a7a;              /* Independent */
+  color-scheme: light;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  min-height: 100svh;
+  display: flex;
+  background: var(--paper);
+  color: rgba(var(--ink), .85);
+  font-family: "General Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 400;
+  font-size: .95rem;
+  line-height: 1.6;
+}
+
+::selection { background: rgb(var(--ink)); color: var(--paper); }
+
+main {
+  width: 100%;
+  max-width: 46rem;
+  margin: auto;             /* vertical centering, degrades to normal flow */
+  padding: 3rem 1.5rem;
+}
+
+/* Links -------------------------------------------------------------- */
+
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--ink), .25);
+  text-underline-offset: 3px;
+  transition: text-decoration-color .2s ease, color .2s ease;
+}
+a:hover { text-decoration-color: rgba(var(--ink), .7); }
+a:focus-visible, .reel:focus-visible {
+  outline: 2px solid rgb(var(--ink));
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+a.todoist {
+  color: var(--red);
+  text-decoration-color: rgba(228, 67, 50, .3);
+}
+a.todoist:hover { text-decoration-color: currentColor; }
+
+/* Entrance ----------------------------------------------------------- */
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+.fade { animation: fadeUp .55s ease both; animation-delay: var(--d, 0s); }
+
+/* Header ------------------------------------------------------------- */
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.name { position: relative; }
+
+h1 { font-size: .95rem; font-weight: 400; letter-spacing: .01em; }
+
+/* mo·fi easter egg: hover the name, "mofi" gets a dashed underline
+   and a small gloss fades in underneath. */
+.mofi { border-bottom: 1px dashed transparent; transition: border-color .25s ease; }
+.name:hover .mofi { border-bottom-color: rgba(var(--ink), .5); }
+
+.gloss {
+  position: absolute;
+  left: 0;
+  top: calc(100% + .35rem);
+  font-size: .8rem;
+  color: rgba(var(--ink), .5);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity .25s ease;
+  pointer-events: none;
+}
+.name:hover .gloss { opacity: 1; }
+
+.role { color: rgba(var(--ink), .62); }
+
+/* Intro rows --------------------------------------------------------- */
+
+.intro { margin-top: 3rem; display: grid; gap: .8rem; }
+
+.row {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 1rem;
+}
+.row .label { color: rgba(var(--ink), .4); }
+
+/* Hairline ----------------------------------------------------------- */
+
+hr {
+  border: none;
+  border-top: 1px solid rgba(var(--ink), .12);
+  margin: 2.5rem 0;
+}
+
+/* Carousel ----------------------------------------------------------- */
+
+.sec-label {
+  font-size: .85rem;
+  color: rgba(var(--ink), .4);
+  margin-bottom: 1rem;
+}
+
+.reel {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;   /* momentum on iOS */
+  /* bleed to the column edge so shadows aren't clipped and the last
+     card can rest against the viewport on small screens */
+  padding: .5rem 1.5rem 1.25rem;
+  margin: 0 -1.5rem;
+  scroll-padding-inline: 1.5rem;
+  cursor: grab;
+  scrollbar-width: none;               /* no visible scrollbar … */
+}
+.reel::-webkit-scrollbar { display: none; }
+/* … but still keyboard- and wheel-scrollable: the reel is focusable
+   and arrow keys advance one card (see script). */
+
+.reel.dragging {
+  scroll-snap-type: none;              /* don't fight the drag */
+  cursor: grabbing;
+  user-select: none;
+}
+
+.card {
+  flex: 0 0 15rem;
+  aspect-ratio: 4 / 5;
+  scroll-snap-align: start;
+  border-radius: 16px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 2px rgba(var(--ink), .05), 0 12px 32px rgba(var(--ink), .07);
+  transition: transform .2s ease, box-shadow .2s ease;
+  --tint: var(--red);
+}
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 2px 4px rgba(var(--ink), .05), 0 18px 40px rgba(var(--ink), .09);
+}
+
+.card .art {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+
+figcaption .pname { display: block; transition: color .2s ease; }
+.card:hover .pname { color: var(--tint); }
+figcaption .yr {
+  display: block;
+  font-size: .85rem;
+  font-variant-numeric: tabular-nums;
+  color: rgba(var(--ink), .4);
+}
+
+/* Employer tints (hover only) */
+.c-ramble, .c-autom, .c-xplat { --tint: var(--red); }
+.c-r1, .c-teach               { --tint: var(--rabbit); }
+.c-emerg                      { --tint: var(--teal); }
+.c-apple                      { --tint: #6e6e73; }
+
+/* Washes — whisper-quiet; the page should still read white */
+.c-ramble { background: #fff4f2; }
+.c-r1     { background: #fff3ec; }
+.c-autom  { background: #f2f7f5; }
+.c-xplat  { background: #f7f7f5; }
+.c-teach  { background: #fdf6ee; }
+.c-emerg  { background: #f2f6f8; }
+.c-apple  { background: #f4f4f5; }
+
+/* Apple — the NDA card: no artwork is the artwork -------------------- */
+.nda {
+  margin: 0;
+  text-align: center;
+  color: rgba(var(--ink), .55);
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------
+   Vignettes. Shared language: 1px strokes at ink .25, paper fills,
+   small radii, slow loops with long rests.
+   ------------------------------------------------------------------ */
+
+/* Ramble — waveform + record dot ------------------------------------ */
+
+.wave { display: flex; align-items: center; gap: 5px; height: 64px; }
+.wave .rec {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--red);
+  margin-right: 8px;
+}
+.wave .bar {
+  width: 3px;
+  height: var(--h);
+  border-radius: 2px;
+  background: rgba(var(--ink), .45);
+  animation: barBreath 5.6s ease-in-out infinite;
+  animation-delay: calc(var(--i) * .13s);
+}
+/* mostly at rest; one slow breath per loop */
+@keyframes barBreath {
+  0%, 42%, 100% { transform: scaleY(1); }
+  56%           { transform: scaleY(.5); }
+  74%           { transform: scaleY(1.25); }
+}
+
+/* r1 — the little orange device ------------------------------------- */
+
+.device {
+  position: relative;
+  width: 86px; height: 86px;
+  border-radius: 22px;
+  background: #ff4d06;   /* flat — matches the family's line-work language */
+}
+.device::before { /* screen */
+  content: "";
+  position: absolute;
+  left: 13px; top: 15px;
+  width: 38px; height: 56px;
+  border-radius: 7px;
+  background: #17171a;
+}
+.device::after { /* scroll wheel */
+  content: "";
+  position: absolute;
+  right: 9px; top: 32px;
+  width: 21px; height: 21px;
+  border-radius: 50%;
+  background: #d83c00;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+
+/* Automations — three nodes, middle one pulsing --------------------- */
+
+.graph { position: relative; width: 130px; height: 80px; }
+.edge {
+  position: absolute;
+  height: 1px;
+  background: rgba(var(--ink), .2);
+  transform-origin: 0 50%;
+}
+.e1 { left: 8px;  top: 64px; width: 75px; transform: rotate(-40.1deg); }
+.e2 { left: 65px; top: 16px; width: 67px; transform: rotate(32.3deg); }
+.node {
+  position: absolute;
+  width: 16px; height: 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(var(--ink), .3);
+  background: var(--paper);
+}
+.n1 { left: 0;     top: 56px; }
+.n2 { left: 57px;  top: 8px;  background: rgba(var(--ink), .06);
+      animation: nodePulse 6s ease-out infinite; }
+.n3 { left: 114px; top: 44px; }
+@keyframes nodePulse {
+  0%, 55%, 100% { box-shadow: 0 0 0 0 rgba(var(--ink), 0); }
+  12%           { box-shadow: 0 0 0 1px rgba(var(--ink), .08), 0 0 0 6px rgba(var(--ink), .04); }
+  35%           { box-shadow: 0 0 0 10px rgba(var(--ink), 0); }
+}
+
+/* Cross-platform — three frames, one shared red sidebar ------------- */
+
+.devices { position: relative; width: 150px; height: 100px; }
+.frame {
+  position: absolute;
+  border: 1px solid rgba(var(--ink), .25);
+  background: transparent;
+}
+.d-desktop { left: 0;    top: 0;    width: 150px; height: 100px; border-radius: 10px; }
+.d-tablet  { left: 14px; top: 14px; width: 100px; height: 80px;  border-radius: 9px; }
+.d-phone   { left: 28px; top: 26px; width: 40px;  height: 66px;  border-radius: 8px; }
+.sidebar { /* lives inside all three frames at once */
+  position: absolute;
+  left: 36px; top: 34px;
+  width: 5px; height: 50px;
+  border-radius: 3px;
+  background: var(--red);
+}
+
+/* teach mode — a dotted path, then the cursor ----------------------- */
+
+.path { position: relative; width: 130px; height: 96px; }
+.pdot {
+  position: absolute;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: rgba(var(--ink), .4);
+  animation: appear 6.5s linear infinite;
+  /* negative delay: no first-paint flash, dots sequence left to right */
+  animation-delay: calc(var(--i) * .28s - 6.2s);
+}
+.cursor {
+  position: absolute;
+  left: 108px; top: 8px;
+  width: 12px; height: 12px;
+  background: rgba(var(--ink), .75);
+  clip-path: polygon(0 0, 100% 50%, 25% 100%);
+  transform: rotate(-24deg);
+  animation: appear 6.5s linear infinite;
+  animation-delay: calc(8 * .28s - 6.2s);
+}
+@keyframes appear {
+  0%, 5%   { opacity: 0; }
+  11%, 86% { opacity: 1; }
+  94%, 100% { opacity: 0; }
+}
+
+/* EmergConnect — soft cross + a 1px ECG line that draws itself ------ */
+
+.clinic { display: grid; justify-items: center; }
+.cross {
+  position: relative;
+  width: 46px; height: 46px;
+  /* drop-shadow on the parent shades the composite plus shape */
+  filter: drop-shadow(0 3px 6px rgba(22, 22, 22, .1));
+}
+.cross::before, .cross::after {
+  content: "";
+  position: absolute;
+  border-radius: 6px;
+  background: #fff;
+}
+.cross::before { left: 0;    top: 15px; width: 46px; height: 16px; }
+.cross::after  { left: 15px; top: 0;    width: 16px; height: 46px; }
+
+.ecg {
+  position: relative;
+  width: 110px; height: 22px;
+  margin-top: 20px;
+  animation: ecgDraw 7s linear infinite;
+}
+.seg {
+  position: absolute;
+  height: 1px;
+  background: rgba(25, 122, 122, .75);
+  transform-origin: 0 50%;
+}
+.s1 { left: 0;    top: 12px; width: 40px; }
+.s2 { left: 40px; top: 12px; width: 12px; transform: rotate(-59deg); }
+.s3 { left: 46px; top: 2px;  width: 19px; transform: rotate(71.6deg); }
+.s4 { left: 52px; top: 20px; width: 10px; transform: rotate(-53.1deg); }
+.s5 { left: 58px; top: 12px; width: 52px; }
+@keyframes ecgDraw {
+  0%   { clip-path: inset(-6px 100% -6px 0); opacity: 1; }
+  45%  { clip-path: inset(-6px 0 -6px 0); }
+  82%  { clip-path: inset(-6px 0 -6px 0); opacity: 1; }
+  92%, 100% { clip-path: inset(-6px 0 -6px 0); opacity: 0; }
+}
+
+/* Footer ------------------------------------------------------------- */
+
+.dock { margin-top: 1.5rem; display: flex; gap: 1.75rem; }
+.colophon { margin-top: 3rem; font-size: .8rem; color: rgba(var(--ink), .35); }
+.fin { margin-top: .35rem; font-size: .8rem; color: rgba(var(--ink), .35); }
+
+/* Small screens ------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  header { flex-direction: column; gap: .1rem; }
+  .gloss { display: none; }
+  .row { grid-template-columns: 1fr; gap: 0; }
+}
+
+/* Reduced motion: everything freezes, everything stays readable ------ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .reel { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+<main>
+
+  <header class="fade" style="--d:0ms">
+    <div class="name">
+      <h1>michael <span class="mofi">mofi</span>na</h1>
+      <span class="gloss" aria-hidden="true">mo·fi — one step past hi·fi</span>
+    </div>
+    <p class="role">Product Designer · Toronto</p>
+  </header>
+
+  <section class="intro" aria-label="About">
+    <div class="row fade" style="--d:70ms">
+      <span class="label">Now</span>
+      <p>Product design at <a class="todoist" href="https://todoist.com">Todoist</a> — Ramble, Automations, and cross-platform work.</p>
+    </div>
+    <div class="row fade" style="--d:140ms">
+      <span class="label">Before</span>
+      <p>rabbit (r1, teach mode). Apple, by way of Critical Mass.</p>
+    </div>
+    <div class="row fade" style="--d:210ms">
+      <span class="label">Also</span>
+      <p>EmergConnect. Projected interfaces. Real PRs in production code.</p>
+    </div>
+  </section>
+
+  <hr class="fade" style="--d:280ms">
+
+  <section aria-label="Selected work">
+    <p class="sec-label fade" style="--d:350ms">Selected work</p>
+
+    <div class="reel fade" style="--d:420ms" tabindex="0" role="group"
+         aria-label="Six project cards. Scroll sideways, or use arrow keys.">
+
+      <!-- Ramble: waveform bars + record dot -->
+      <figure class="card c-ramble">
+        <div class="art" aria-hidden="true">
+          <div class="wave">
+            <div class="rec"></div>
+            <div class="bar" style="--h:12px; --i:0"></div>
+            <div class="bar" style="--h:22px; --i:1"></div>
+            <div class="bar" style="--h:34px; --i:2"></div>
+            <div class="bar" style="--h:46px; --i:3"></div>
+            <div class="bar" style="--h:30px; --i:4"></div>
+            <div class="bar" style="--h:40px; --i:5"></div>
+            <div class="bar" style="--h:20px; --i:6"></div>
+            <div class="bar" style="--h:28px; --i:7"></div>
+            <div class="bar" style="--h:14px; --i:8"></div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="pname">Ramble — voice capture</span>
+          <span class="yr">2025–26</span>
+        </figcaption>
+      </figure>
+
+      <!-- r1: the orange device -->
+      <figure class="card c-r1">
+        <div class="art" aria-hidden="true">
+          <div class="device"></div>
+        </div>
+        <figcaption>
+          <span class="pname">r1 — from wheel to touch</span>
+          <span class="yr">2024</span>
+        </figcaption>
+      </figure>
+
+      <!-- Automations: three nodes, middle pulsing -->
+      <figure class="card c-autom">
+        <div class="art" aria-hidden="true">
+          <div class="graph">
+            <div class="edge e1"></div>
+            <div class="edge e2"></div>
+            <div class="node n1"></div>
+            <div class="node n2"></div>
+            <div class="node n3"></div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="pname">Automations platform</span>
+          <span class="yr">2025–26</span>
+        </figcaption>
+      </figure>
+
+      <!-- Cross-platform: three frames, one red sidebar -->
+      <figure class="card c-xplat">
+        <div class="art" aria-hidden="true">
+          <div class="devices">
+            <div class="frame d-desktop"></div>
+            <div class="frame d-tablet"></div>
+            <div class="frame d-phone"></div>
+            <div class="sidebar"></div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="pname">Cross-platform design</span>
+          <span class="yr">2026</span>
+        </figcaption>
+      </figure>
+
+      <!-- teach mode: dotted path to a cursor -->
+      <figure class="card c-teach">
+        <div class="art" aria-hidden="true">
+          <div class="path">
+            <div class="pdot" style="left:6px;   top:78px; --i:0"></div>
+            <div class="pdot" style="left:22px;  top:64px; --i:1"></div>
+            <div class="pdot" style="left:38px;  top:52px; --i:2"></div>
+            <div class="pdot" style="left:54px;  top:42px; --i:3"></div>
+            <div class="pdot" style="left:70px;  top:34px; --i:4"></div>
+            <div class="pdot" style="left:86px;  top:27px; --i:5"></div>
+            <div class="pdot" style="left:100px; top:21px; --i:6"></div>
+            <div class="cursor"></div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="pname">teach mode</span>
+          <span class="yr">2024</span>
+        </figcaption>
+      </figure>
+
+      <!-- EmergConnect: soft cross + self-drawing ECG -->
+      <figure class="card c-emerg">
+        <div class="art" aria-hidden="true">
+          <div class="clinic">
+            <div class="cross"></div>
+            <div class="ecg">
+              <div class="seg s1"></div>
+              <div class="seg s2"></div>
+              <div class="seg s3"></div>
+              <div class="seg s4"></div>
+              <div class="seg s5"></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>
+          <span class="pname">EmergConnect — healthcare</span>
+          <span class="yr">2021–</span>
+        </figcaption>
+      </figure>
+
+      <figure class="card c-apple">
+        <div class="art" aria-hidden="true">
+          <p class="nda">Really good designs.<br>Trust me.</p>
+        </div>
+        <figcaption>
+          <span class="pname">Apple — Marcom, via Critical Mass</span>
+          <span class="yr">2021–24</span>
+        </figcaption>
+      </figure>
+
+    </div>
+  </section>
+
+  <footer>
+    <p class="dock fade" style="--d:490ms">
+      <a href="mailto:info@michaelmofina.com">Email</a>
+      <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request.</a>
+    </p>
+    <p class="colophon fade" style="--d:560ms">No images on this page — everything is drawn in CSS.</p>
+    <p class="fin fade" style="--d:630ms">fin.</p>
+  </footer>
+
+</main>
+
+<script>
+/* Drag-to-scroll for the reel. Mouse and pen only — touch already
+   scrolls natively. Capture starts after 4px of travel, so plain
+   clicks are never hijacked. */
+(function () {
+  var reel = document.querySelector('.reel');
+  if (!reel) return;
+
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var pointerId = null, startX = 0, startLeft = 0, dragging = false;
+
+  reel.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'touch' || e.button !== 0) return;
+    pointerId = e.pointerId;
+    startX = e.clientX;
+    startLeft = reel.scrollLeft;
+    dragging = false;
+  });
+
+  reel.addEventListener('pointermove', function (e) {
+    if (pointerId === null || e.pointerId !== pointerId) return;
+    if (e.buttons === 0) { release(); return; }  /* button released outside the reel */
+    var dx = e.clientX - startX;
+    if (!dragging && Math.abs(dx) > 4) {
+      dragging = true;
+      reel.setPointerCapture(pointerId);
+      reel.classList.add('dragging');   /* snap off while dragging */
+    }
+    if (dragging) reel.scrollLeft = startLeft - dx;
+  });
+
+  function release() {
+    if (pointerId === null) return;
+    pointerId = null;
+    if (dragging) {
+      dragging = false;
+      reel.classList.remove('dragging'); /* snap settles the nearest card */
+    }
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+
+  /* Keyboard: focus the reel, arrows move one card at a time. */
+  reel.addEventListener('keydown', function (e) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    var card = reel.querySelector('.card');
+    var step = (card ? card.offsetWidth : 240) + 16;
+    reel.scrollBy({
+      left: e.key === 'ArrowRight' ? step : -step,
+      behavior: reduced.matches ? 'auto' : 'smooth'
+    });
+  });
+})();
+</script>
+</body>
+</html>
