@@ -3,111 +3,213 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Michael Mofina · Product Designer</title>
-<meta name="description" content="Michael Mofina designs AI-native software. Currently at Doist working on Todoist; previously crafting interfaces for rabbit.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/site.css">
+<title>Michael Mofina — Product Designer</title>
+<meta name="description" content="Michael Mofina is a product designer at Doist, previously rabbit and Apple. Based in Toronto.">
+<meta property="og:title" content="Michael Mofina — Product Designer">
+<meta property="og:description" content="Product designer at Doist, previously rabbit and Apple. Based in Toronto.">
+<meta property="og:url" content="https://michaelmofina.com">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="%23fdfdfb"/><text x="32" y="44" font-family="Helvetica,Arial,sans-serif" font-size="34" text-anchor="middle" fill="%23161616">mm</text></svg>'>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Person",
+  "name": "Michael Mofina",
+  "jobTitle": "Product Designer",
+  "worksFor": { "@type": "Organization", "name": "Doist" },
+  "address": { "@type": "PostalAddress", "addressLocality": "Toronto", "addressCountry": "CA" },
+  "url": "https://michaelmofina.com",
+  "email": "mailto:info@michaelmofina.com"
+}
+</script>
+<style>
+  @font-face{
+    font-family:"General Sans";
+    src:url("assets/fonts/GeneralSans-Regular.woff2") format("woff2");
+    font-weight:400;
+    font-style:normal;
+    font-display:swap;
+  }
+
+  :root{
+    --paper:#fdfdfb;
+    --ink:22,22,22;                 /* rgb triple — all grays are alpha-composited ink */
+    --doist:#e44332;                /* the one accent at rest: current employer */
+    --t-doist:#e44332;              /* hover tints: career as a color system */
+    --t-rabbit:#ff4d06;
+    --t-apple:#6e6e73;
+    --t-indie:#197a7a;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper);
+    color:rgba(var(--ink),.85);
+    font-family:"General Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    font-size:.95rem;
+    font-weight:400;
+    line-height:1.6;
+    letter-spacing:0;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(var(--ink),.85);color:var(--paper)}
+
+  a{color:inherit;text-decoration:none;border-bottom:1px solid rgba(var(--ink),.25);transition:border-color .2s ease,color .2s ease}
+  a:hover{border-bottom-color:rgba(var(--ink),.85)}
+  a:focus-visible{outline:2px solid rgba(var(--ink),.85);outline-offset:3px;border-radius:1px}
+
+  .page{
+    max-width:46rem;
+    margin:0 auto;
+    padding:clamp(2rem,6vh,5rem) 1.5rem 4rem;
+    min-height:100svh;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+
+  /* ---------- header ---------- */
+  .top{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}
+  .who{margin:0;position:relative}
+  .name{color:rgba(var(--ink),.85)}
+  .name .mofi{border-bottom:1px dashed transparent;transition:border-color .25s ease}
+  .who:hover .mofi{border-bottom-color:rgba(var(--ink),.55)}
+  .gloss{
+    position:absolute;left:0;top:100%;margin-top:.35rem;
+    font-size:.8rem;color:rgba(var(--ink),.45);white-space:nowrap;
+    opacity:0;transform:translateY(-2px);
+    transition:opacity .25s ease,transform .25s ease;
+    pointer-events:none;
+  }
+  .who:hover .gloss{opacity:1;transform:none}
+  .role{margin:0;color:rgba(var(--ink),.5)}
+
+  /* ---------- the one big line ---------- */
+  .lede{
+    font-size:clamp(1.6rem,3.6vw,2.5rem);
+    line-height:1.2;
+    letter-spacing:-.02em;
+    font-weight:400;
+    margin:clamp(3rem,9vh,5.5rem) 0 0;
+  }
+  .lede a{color:var(--doist);border-bottom:1px solid transparent}
+  .lede a:hover{border-bottom-color:var(--doist)}
+
+  hr{
+    border:0;border-top:1px solid rgba(var(--ink),.12);
+    margin:clamp(2rem,6vh,3.5rem) 0 0;
+  }
+
+  /* ---------- work index ---------- */
+  .work{list-style:none;margin:1rem 0 0;padding:0}
+  .work>li{
+    display:grid;
+    grid-template-columns:10rem 1fr;
+    gap:1.5rem;
+    padding:1rem 0;
+    transition:opacity .2s ease;
+  }
+  .work:hover>li{opacity:.45}
+  .work:hover>li:hover{opacity:1}
+  .org{color:rgba(var(--ink),.85);transition:color .2s ease}
+  .work>li:hover .org{color:var(--tint,rgba(var(--ink),.85))}
+  .via{color:rgba(var(--ink),.4);font-size:.8rem}
+  .items{list-style:none;margin:0;padding:0}
+  .items li{
+    display:flex;justify-content:space-between;align-items:baseline;gap:1rem;
+    padding:.15rem 0;
+  }
+  .yr{color:rgba(var(--ink),.4);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  .joke{
+    display:block;font-size:.8rem;color:rgba(var(--ink),.4);
+    opacity:0;transition:opacity .3s ease .1s;
+  }
+  .work>li:hover .joke{opacity:1;color:var(--tint)}
+
+  /* ---------- dock ---------- */
+  .dock{margin:clamp(2.5rem,7vh,4rem) 0 0;display:flex;gap:1.75rem}
+
+  footer{margin-top:clamp(3rem,8vh,5rem)}
+  .fin{margin:0;font-size:.8rem;color:rgba(var(--ink),.35)}
+
+  /* ---------- entrance ---------- */
+  .up{opacity:0;transform:translateY(10px);animation:up .55s ease-out both;animation-delay:calc(var(--i,0)*70ms)}
+  @keyframes up{to{opacity:1;transform:none}}
+
+  @media (prefers-reduced-motion:reduce){
+    .up{animation:none;opacity:1;transform:none}
+    *{transition:none!important}
+  }
+
+  @media (max-width:640px){
+    .top{flex-direction:column;gap:.1rem}
+    .gloss{display:none}
+    .work>li{grid-template-columns:1fr;gap:.25rem}
+    .org{font-size:.8rem;color:rgba(var(--ink),.5)}
+  }
+</style>
 </head>
 <body>
 
-<div class="wrap">
+<div class="page">
 
-  <header class="top reveal">
-    <p class="name"><a href="/">Michael Mofina</a></p>
-    <p class="top-meta">Toronto, Canada<br><span class="clock" id="clock"></span></p>
+  <header class="top up" style="--i:0">
+    <p class="who">
+      <span class="name">michael <span class="surname"><span class="mofi">mofi</span>na</span></span>
+      <span class="gloss" aria-hidden="true">mo·fi — one step past hi·fi</span>
+    </p>
+    <p class="role">Product Designer · Toronto</p>
   </header>
 
-  <section class="intro reveal" style="padding-top:120px">
-    <h1>Product designer working where <em class="disp">software meets AI</em>.</h1>
-    <p class="lede">
-      I design at <b>Doist</b>, across Todoist and its automations platform.
-      Before that I crafted AI-powered interfaces at <b>rabbit</b>.
-      I design by building: most of my work ships as working prototypes, or as real
-      pull requests in production code.
-    </p>
-  </section>
+  <h1 class="lede up" style="--i:1">Currently at <a href="https://doist.com">Doist</a>.</h1>
 
-  <section class="reveal" aria-labelledby="work-label">
-    <p class="sec-label" id="work-label">Selected work</p>
-    <ol class="work">
-      <li>
-        <a class="work-row" href="work/rabbit.html">
-          <span class="idx">01</span>
-          <span class="work-title">rabbit
-            <span class="work-sub">rabbitOS on the r1 · teach mode · LAM playground</span>
-          </span>
-          <span class="work-meta">case study</span>
-        </a>
-      </li>
-      <li>
-        <a class="work-row" href="work/ramble.html">
-          <span class="idx">02</span>
-          <span class="work-title">Ramble
-            <span class="work-sub">Voice capture for Todoist, from idea to handoff</span>
-          </span>
-          <span class="work-meta">case study</span>
-        </a>
-      </li>
-      <li>
-        <div class="work-row soon">
-          <span class="idx">03</span>
-          <span class="work-title">Todoist, cross-platform
-            <span class="work-sub">Design across web, iOS and Android · shipped PRs</span>
-          </span>
-          <span class="work-meta">in progress</span>
-        </div>
-      </li>
-      <li>
-        <div class="work-row soon">
-          <span class="idx">04</span>
-          <span class="work-title">Automations
-            <span class="work-sub">Doist's automation platform, design from zero</span>
-          </span>
-          <span class="work-meta">in progress</span>
-        </div>
-      </li>
-    </ol>
-  </section>
+  <hr class="up" style="--i:2">
 
-  <section class="reveal" aria-labelledby="about-label">
-    <p class="sec-label" id="about-label">About</p>
-    <div class="prose">
-      <p>
-        I care about interfaces that make new technology feel obvious. The tools I
-        design tend to sit close to AI, and the part I enjoy most is the last ten
-        percent: the motion, the copy, the details people feel but never mention.
-      </p>
-      <p>
-        I prototype in real code. That means the things I hand off are things I have
-        already used, broken, and fixed.
-      </p>
-      <p class="contact"><a href="mailto:michael.mofina@icloud.com">michael.mofina@icloud.com</a></p>
-    </div>
-  </section>
+  <ul class="work up" style="--i:3">
+    <li style="--tint:var(--t-doist)">
+      <span class="org">Doist</span>
+      <ul class="items">
+        <li><span>Ramble — voice capture for Todoist</span><span class="yr">2025–26</span></li>
+        <li><span>Automations platform</span><span class="yr">2025–26</span></li>
+        <li><span>Todoist, cross-platform</span><span class="yr">2026</span></li>
+        <li><span>Shipped web PRs</span><span class="yr">2026</span></li>
+      </ul>
+    </li>
+    <li style="--tint:var(--t-rabbit)">
+      <span class="org">rabbit</span>
+      <ul class="items">
+        <li><span>r1 — from wheel to touch</span><span class="yr">2024</span></li>
+        <li><span>teach mode</span><span class="yr">2024</span></li>
+        <li><span>LAM playground</span><span class="yr">2025</span></li>
+      </ul>
+    </li>
+    <li style="--tint:var(--t-apple)">
+      <span class="org">Apple <span class="via">via Critical Mass</span></span>
+      <ul class="items">
+        <li><span>Marcom design</span><span class="yr">2021–24</span></li>
+        <li><span class="joke" aria-hidden="true">Really good designs. Trust me.</span></li>
+      </ul>
+    </li>
+    <li style="--tint:var(--t-indie)">
+      <span class="org">Independent</span>
+      <ul class="items">
+        <li><span>EmergConnect — healthcare</span><span class="yr">2021–</span></li>
+        <li><span>Projected interfaces</span><span class="yr">2023</span></li>
+      </ul>
+    </li>
+  </ul>
+
+  <p class="dock up" style="--i:4">
+    <a href="mailto:info@michaelmofina.com">Email</a>
+    <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
+  </p>
+
+  <footer class="up" style="--i:5">
+    <p class="fin">fin.</p>
+  </footer>
 
 </div>
-
-<footer class="colophon">
-  <p>Hand-built with plain HTML and CSS. No frameworks, no tracking.</p>
-  <p class="sig">Michael Mofina · <span id="year"></span></p>
-</footer>
-
-<script>
-  const year = document.getElementById("year");
-  year.textContent = new Date().getFullYear();
-
-  const clock = document.getElementById("clock");
-  function tick(){
-    clock.textContent = new Intl.DateTimeFormat("en-CA", {
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-      hour12: false, timeZone: "America/Toronto"
-    }).format(new Date()) + " ET";
-  }
-  tick();
-  setInterval(tick, 1000);
-</script>
 
 </body>
 </html>
