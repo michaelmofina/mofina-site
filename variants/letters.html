@@ -111,8 +111,10 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
 .letter.live.held{ cursor:grabbing; color:var(--accent); }
 body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
-/* the two toys that join the pile — DOM-drawn, flat fills only,
-   sized in px by the script to match the headline's cap height */
+/* the two toys that join the pile — sized in px by the script to
+   match the headline's cap height. The iPhone is DOM-drawn, flat
+   fills only; the r1 is a WebGL canvas when it can be, and the same
+   flat DOM drawing when it can't. */
 .toy{
   position:fixed;
   left:0; top:0;
@@ -275,6 +277,7 @@ hr{ border:0; border-top:1px solid rgba(var(--ink),.12); margin:2.75rem 0; }
 
 </main>
 
+<script src="r1-mesh.js"></script>
 <script>
 (() => {
 "use strict";
@@ -338,6 +341,7 @@ let held = null, pointerId = null;
 let spilled = false;
 const target = { x:0, y:0 };
 const samples = [];
+let gravX = 0, gravY = G;   // gravity vector — device tilt may rotate it; |g| stays G
 
 function seatRect(i){ return seats[i].getBoundingClientRect(); }
 
@@ -510,6 +514,7 @@ function mkBody(el, kind){
     homeDelay:0, homed:true, dropAt:0,
     entering:false,              // toys fall in from above the ceiling plane
     toneBase:0, toneDur:0,
+    draw3d:null,                 // the WebGL r1 hangs its painter here
   };
   for(let i = 0; i < HULL_MAXV; i++){ b.lv.push({x:0, y:0}); b.wv.push({x:0, y:0}); }
   bodyByEl.set(el, b);
@@ -652,6 +657,7 @@ function onDown(e){
     goLive();
   }
   if(!el) return;
+  armTilt();      // ask for motion only once someone actually plays (still inside the gesture, per iOS)
   const b = bodyByEl.get(el);
   if(!b) return;
   if(mode === "homing" && b.kind === "letter") return;  // homing letters are spoken for
@@ -700,6 +706,72 @@ function onUp(e){
   start();
 }
 addEventListener("pointerdown", onDown);
+
+/* ================================================================
+   Tilt the world — on touch devices the phone's orientation rotates
+   gravity itself, so the pile slides along the floor into a corner
+   like beads in a box. Armed inside the first pointerdown (iOS only
+   grants motion permission during a gesture; everyone else just gets
+   the listener). Desktop never prompts, denial is silently accepted,
+   and reduced-motion never even reaches this code — the whole IIFE
+   returned long ago.
+   ================================================================ */
+const hasTouch = (navigator.maxTouchPoints || 0) > 0 ||
+                 matchMedia("(pointer: coarse)").matches;
+let tiltArmed = false;
+let tiltDX = 0, tiltDY = 1;      // smoothed gravity direction (≈ unit)
+let wakeDX = 0, wakeDY = 1;      // direction the pile last settled under
+let devGamma = 0;                // smoothed roll, borrowed for the r1's idle sway
+const WAKE_DOT = Math.cos(4 * Math.PI / 180);
+
+function onTilt(e){
+  if(e.beta == null || e.gamma == null) return;
+  const beta  = e.beta  * Math.PI / 180;
+  const gamma = e.gamma * Math.PI / 180;
+  devGamma += (gamma - devGamma) * .15;
+  // in-plane gravity in portrait device coords (screen y down):
+  // g_device = (cosβ·sinγ, sinβ) of a unit earth-gravity vector
+  let gx = Math.cos(beta) * Math.sin(gamma);
+  let gy = Math.sin(beta);
+  // …rotated into page coords when the UI is in landscape
+  const ang = (screen.orientation && typeof screen.orientation.angle === "number")
+    ? screen.orientation.angle
+    : (typeof window.orientation === "number" ? window.orientation : 0);
+  if(ang){
+    const ar = ang * Math.PI / 180, ca = Math.cos(ar), sa = Math.sin(ar);
+    const px = gx * ca + gy * sa, py = gy * ca - gx * sa;
+    gx = px; gy = py;
+  }
+  const m = Math.hypot(gx, gy);
+  // a phone lying nearly flat has no in-plane pull — level means down
+  const dx = m < .15 ? 0 : gx / m;
+  const dy = m < .15 ? 1 : gy / m;
+  tiltDX += (dx - tiltDX) * .15;   // low-pass so the pile doesn't buzz
+  tiltDY += (dy - tiltDY) * .15;
+  const n = Math.hypot(tiltDX, tiltDY) || 1;
+  gravX = G * tiltDX / n;          // magnitude stays exactly G
+  gravY = G * tiltDY / n;
+  // sleepers only stir once the world has genuinely turned (~4°)
+  if((tiltDX * wakeDX + tiltDY * wakeDY) / n < WAKE_DOT){
+    wakeDX = tiltDX / n; wakeDY = tiltDY / n;
+    wakeAll();
+    start();
+  }
+}
+
+function armTilt(){
+  if(tiltArmed || !hasTouch || typeof DeviceOrientationEvent === "undefined")
+    return;
+  tiltArmed = true;
+  const ask = DeviceOrientationEvent.requestPermission;
+  if(typeof ask === "function"){
+    ask.call(DeviceOrientationEvent).then(state => {
+      if(state === "granted") addEventListener("deviceorientation", onTilt);
+    }).catch(() => {});              // denied or blocked: gravity stays down
+  } else {
+    addEventListener("deviceorientation", onTilt);
+  }
+}
 
 /* ---- home: the name puts itself back together (letters only) ---- */
 function goHome(){
@@ -1000,7 +1072,8 @@ function step(t){
     b.iM = (b === held || b.sleeping) ? 0 : b.invM;
     b.iI = (b === held || b.sleeping) ? 0 : b.invI;
     if(!b.sim || b === held || b.sleeping) continue;
-    b.vy += G * dt;
+    b.vx += gravX * dt;
+    b.vy += gravY * dt;
     const dmp = 1 - LIN_DAMP * dt;
     b.vx *= dmp; b.vy *= dmp;
     b.va *= 1 - ANG_DAMP * dt;
@@ -1135,7 +1208,8 @@ function step(t){
   // repaint so the loop never stops on a stale, ~1px-off frame
   if(justSnapped) render(t);
 
-  const busy = held || mode === "homing" || anyAwake || anyWaiting;
+  const busy = held || mode === "homing" || anyAwake || anyWaiting ||
+               (r1busy && r1busy());   // the r1's tilt may still be easing
   if(busy) raf = requestAnimationFrame(step);
 }
 
@@ -1154,14 +1228,17 @@ function render(t){
     b.el.style.transform = "translate3d(" + b.x.toFixed(2) + "px," + b.y.toFixed(2) +
       "px,0) rotate(" + b.a.toFixed(3) + "rad) translate(" +
       (-b.cx).toFixed(2) + "px," + (-b.cy).toFixed(2) + "px)";
+    if(b.draw3d) b.draw3d(t, b);   // repaint the canvas sprite if it changed
   }
 }
 
 /* ================================================================
-   The toys — a rabbit r1 and an iPhone, drawn entirely with divs and
-   flat fills. They crash the pile a beat after the first spill and
-   then live on this page forever: reassembly ignores them, re-spills
-   rain letters onto them, and they drag and fling like everything else.
+   The toys — a rabbit r1 and an iPhone. The iPhone is drawn with
+   divs and flat fills; the r1 renders its real baked mesh through
+   WebGL when it can (and the same flat divs when it can't). They
+   crash the pile a beat after the first spill and then live on this
+   page forever: reassembly ignores them, re-spills rain letters onto
+   them, and they drag and fling like everything else.
    ================================================================ */
 function toyBody(el, w, h, cut){
   const b = mkBody(el, "toy");
@@ -1213,6 +1290,177 @@ function makeRabbit(side){
   return { el, w:side, h:side, cut:rr * .75 };
 }
 
+/* ================================================================
+   The 3D r1 — the baked mesh from r1-mesh.js drawn by a tiny
+   hand-rolled WebGL1 renderer: one program, baseColor texture,
+   two-light lambert, and a soft rim so the black screen face still
+   reads. The physics body is untouched — this canvas is just the
+   sprite, CSS-positioned and CSS-rotated by the body angle exactly
+   like the flat toy it replaces. The shader adds presentation-only
+   depth (a velocity lean, a face-the-viewer tilt while held, a
+   whisper of device sway), and a second matrix folds the body angle
+   back into the normals so the lights stay fixed on the page while
+   the model tumbles. Missing mesh, no WebGL, or any failure at all:
+   return null and the flat CSS rabbit above ships instead.
+   ================================================================ */
+let r1busy = null;         // step() asks this whether the tilt is still easing
+
+function makeRabbitGL(side){
+  const MSH = window.R1_MESH;
+  if(!MSH || !MSH.pos || !MSH.nrm || !MSH.uv || !MSH.idx || !MSH.idx.length)
+    return null;
+  const el = document.createElement("canvas");
+  el.className = "toy";
+  el.setAttribute("aria-hidden", "true");
+  el.style.width = side + "px";
+  el.style.height = side + "px";
+  const opts = { alpha:true, antialias:true, premultipliedAlpha:true };
+  let gl = null;
+  try{
+    gl = el.getContext("webgl", opts) || el.getContext("experimental-webgl", opts);
+  }catch(err){ gl = null; }
+  if(!gl) return null;
+
+  function sh(kind, src){
+    const s = gl.createShader(kind);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+  }
+  const vs = sh(gl.VERTEX_SHADER,
+    "attribute vec3 aP;attribute vec3 aN;attribute vec2 aT;" +
+    "uniform mat3 uM;uniform mat3 uL;varying vec3 vN;varying vec2 vT;" +
+    "void main(){vec3 p=uM*aP;gl_Position=vec4(p.xy,-p.z*.35,1.);vN=uL*aN;vT=aT;}");
+  const fs = sh(gl.FRAGMENT_SHADER,
+    "precision mediump float;uniform sampler2D uT;varying vec3 vN;varying vec2 vT;" +
+    "void main(){vec3 n=normalize(vN);vec3 c=texture2D(uT,vT).rgb;" +
+    "float ka=max(dot(n,vec3(-.42,.61,.67)),0.);" +      // key light, upper left front
+    "float kb=max(dot(n,vec3(.79,-.33,.52)),0.);" +      // fill, lower right
+    "float rim=pow(max(1.-abs(n.z),0.),2.6)*.3;" +       // fresnel-ish edge (max: no NaN on mediump rounding)
+    "gl_FragColor=vec4(c*(.34+.66*ka+.2*kb)+rim,1.);}");
+  if(!vs || !fs) return null;
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+  gl.useProgram(prog);
+
+  function attrib(name, data, size){
+    const bo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bo);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, name);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  }
+  attrib("aP", MSH.pos, 3);
+  attrib("aN", MSH.nrm, 3);
+  attrib("aT", MSH.uv, 2);
+  const ibo = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, MSH.idx, gl.STATIC_DRAW);
+  const nIdx = MSH.idx.length;
+  const uM = gl.getUniformLocation(prog, "uM");
+  const uL = gl.getUniformLocation(prog, "uL");
+  gl.uniform1i(gl.getUniformLocation(prog, "uT"), 0);
+  gl.enable(gl.DEPTH_TEST);
+  gl.clearColor(0, 0, 0, 0);
+
+  /* presentation state — none of this ever touches the physics */
+  const mM = new Float32Array(9), mL = new Float32Array(9);
+  let tx = 0, ty = 0;                 // current lean, rad
+  let easing = true, dirty = true, dead = false;
+  let dpr0 = 0, lastA = 1e9, lastTx = 1e9, lastTy = 1e9, lastDrawT = 0;
+
+  // shell-orange 1px stand-in until the embedded JPEG decodes (ms)
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE,
+                new Uint8Array([255, 77, 6]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  let texImg = null;
+  const img = new Image();
+  img.onload = () => { texImg = img; dirty = true; start(); };
+  img.src = MSH.tex;
+
+  el.addEventListener("webglcontextlost", e => {
+    e.preventDefault();
+    dead = true;                      // degrade to the flat look; physics never notices
+    el.style.background = "#ff4d06";
+    el.style.borderRadius = Math.round(side * .16) + "px";
+  });
+
+  function m3yx(ry, rx, s, out){      // column-major s · RotY(ry) · RotX(rx)
+    const cy = Math.cos(ry), sy = Math.sin(ry);
+    const cx = Math.cos(rx), sx = Math.sin(rx);
+    out[0] = cy * s;      out[1] = 0;       out[2] = -sy * s;
+    out[3] = sy * sx * s; out[4] = cx * s;  out[5] = cy * sx * s;
+    out[6] = sy * cx * s; out[7] = -sx * s; out[8] = cy * cx * s;
+  }
+  function m3z(phi, m){               // m ← RotZ(phi) · m, in place
+    const c = Math.cos(phi), s = Math.sin(phi);
+    for(let j = 0; j < 9; j += 3){
+      const x = m[j], y = m[j + 1];
+      m[j]     = c * x - s * y;
+      m[j + 1] = s * x + c * y;
+    }
+  }
+  const lean = (v, lim) => Math.max(-lim, Math.min(lim, v));
+
+  function draw3d(t, b){
+    if(dead){ easing = false; return; }
+    const dt = Math.min(Math.max((t - lastDrawT) / 1000, 0), .1);
+    lastDrawT = t;
+    // where this moment wants the toy to lean
+    let wantY, wantX;
+    if(held === b){                   // picked up: face the viewer a little
+      wantY = .2; wantX = .12;
+    } else {
+      wantY = lean(b.vx * .0006, .35) + lean(devGamma * .5, .15);
+      wantX = lean(-b.vy * .0006, .35);
+    }
+    const k = 1 - Math.exp(-dt * 6.5);
+    tx += (wantX - tx) * k;
+    ty += (wantY - ty) * k;
+    if(Math.abs(wantX - tx) < .004 && Math.abs(wantY - ty) < .004){
+      tx = wantX; ty = wantY;         // settled — this draw is the final one
+      easing = false;
+    } else easing = true;
+    // repaint only when what the canvas shows would actually change
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    if(!dirty && dpr === dpr0 && b.a === lastA && tx === lastTx && ty === lastTy)
+      return;
+    if(dpr !== dpr0){
+      dpr0 = dpr;
+      el.width = el.height = Math.max(2, Math.round(side * dpr));
+      gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    }
+    if(texImg){                       // the real baseColor arrived: upload once
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, texImg);
+      gl.generateMipmap(gl.TEXTURE_2D);   // 512² is power-of-two, so this is legal
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      texImg = null;
+    }
+    m3yx(ty, tx, .985, mM);           // positions: tilt only — CSS spins the box
+    m3yx(ty, tx, 1, mL);
+    m3z(-b.a, mL);                    // normals: lights stay fixed on the page
+    gl.uniformMatrix3fv(uM, false, mM);
+    gl.uniformMatrix3fv(uL, false, mL);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.drawElements(gl.TRIANGLES, nIdx, gl.UNSIGNED_SHORT, 0);
+    lastA = b.a; lastTx = tx; lastTy = ty;
+    dirty = false;
+  }
+
+  const rr = Math.round(side * .16);
+  return { el, w:side, h:side, cut:rr * .75, draw3d,
+           busy:() => easing && !dead };
+}
+
 function makePhone(hgt){
   const w = Math.round(hgt * .48);
   const el = document.createElement("div");
@@ -1237,9 +1485,11 @@ function spawnToy(which){
   if(!hullsBuilt) buildHulls();
   const F = fontPx();
   const cap = capHeightPx(F);
-  const spec = which === "r1" ? makeRabbit(Math.round(cap * 1.25))
+  const side = Math.round(cap * 1.25);
+  const spec = which === "r1" ? (makeRabbitGL(side) || makeRabbit(side))
                               : makePhone(Math.round(cap * 1.5));
   const b = toyBody(spec.el, spec.w, spec.h, spec.cut);
+  if(spec.draw3d){ b.draw3d = spec.draw3d; r1busy = spec.busy; }
   b.ch = which;
   b.x = innerWidth * (which === "r1" ? .3 : .7);
   b.y = -150;
