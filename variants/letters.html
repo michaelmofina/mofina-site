@@ -10,7 +10,10 @@
 /* ============================================================
    michael mofina — "spill" variant
    The name appears mid-page, holds just long enough to be read,
-   then every letter falls. Each one can be picked up and thrown.
+   then every letter falls. Each one is a rigid body whose collider
+   is traced from its own glyph outline, so letters land on their
+   ink, tip over their stems, and stack like real objects. A rabbit
+   r1 and an iPhone drop in after the first spill and never leave.
    Escape or double-click puts the name back together.
    ============================================================ */
 
@@ -94,16 +97,35 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
   display:inline-block;
   will-change:transform;
 }
-/* once physics owns a letter it becomes a fixed-position sprite */
+/* once physics owns a letter it becomes a fixed-position sprite;
+   transforms are composed by hand about the glyph's own centroid,
+   so the origin must stay at the box corner */
 .letter.live{
   position:fixed;
   left:0; top:0;
   z-index:9;
   cursor:grab;
   touch-action:none;
+  transform-origin:0 0;
 }
 .letter.live.held{ cursor:grabbing; color:var(--accent); }
 body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
+
+/* the two toys that join the pile — DOM-drawn, flat fills only,
+   sized in px by the script to match the headline's cap height */
+.toy{
+  position:fixed;
+  left:0; top:0;
+  z-index:8;               /* letters read in front of the toys */
+  transform-origin:0 0;
+  will-change:transform;
+  cursor:grab;
+  touch-action:none;
+  user-select:none;
+  -webkit-user-select:none;
+}
+.toy.held{ cursor:grabbing; }
+.toy div{ position:absolute; }
 
 /* invisible mirror of the name: always lays out naturally, so home
    seats stay correct at any viewport size */
@@ -276,31 +298,46 @@ ghostP.innerHTML = visname.innerHTML;   // identical structure, invisible
 const letters = [...visname.querySelectorAll(".letter")];
 const seats   = [...ghostP.querySelectorAll(".letter")];
 
-if(reduced) return;   // the name simply stays a name
+if(reduced) return;   // the name simply stays a name; no toys, no handlers
 
 /* ================================================================
-   Physics — 13 tumbling rigid letters with circle colliders.
+   Physics — 13 rigid letters (plus two toys, later) whose colliders
+   are convex hulls traced from the glyphs themselves. SAT contacts,
+   impulse solver with full rotational terms, friction, sleep.
    ================================================================ */
-const G = 2000;         // gravity px/s²
-const REST = .55;       // letters thud rather than bounce
-const MAXV = 3400;
-const FLOOR_F = 2.6;    // ground friction (exp decay rate)
 
-let mode = "seated";    // seated | live | homing
-let raf = 0, lastT = 0, stillFrames = 0;
+/* ---- every physics tunable lives in this block ---- */
+const G          = 2000;   // gravity, px/s²
+const REST       = .35;    // restitution — a thud with a little life in it
+const REST_MIN   = 110;    // impacts slower than this don't bounce (px/s)
+const MU         = .4;     // Coulomb-ish friction coefficient
+const BAUM       = .2;     // positional correction strength per pass
+const SLOP       = .5;     // px of overlap we quietly allow
+const VEL_ITERS  = 3;      // velocity solver passes
+const POS_ITERS  = 2;      // position solver passes
+const MAXV       = 3400;   // fling speed cap, px/s
+const LIN_DAMP   = .04;    // faint air drag, 1/s
+const ANG_DAMP   = .35;    // faint spin drag, 1/s
+const SLEEP_LIN  = 9;      // px/s — under this a body counts as still
+const SLEEP_ANG  = .10;    // rad/s — same idea for spin
+const SLEEP_DX   = 1.5;    // px — or: barely drifted from where it settled
+const SLEEP_DA   = .03;    // rad — same idea for wobble
+const SLEEP_T    = .5;     // seconds of stillness before a body sleeps
+const SETTLE_ANG = 6;      // extra spin damping while slow + touching, 1/s
+const SETTLE_LIN = 2;      // extra slide damping while slow + touching, 1/s
+const WAKE_V     = 80;     // contact approach speed that wakes a sleeper
+const HULL_PX    = 128;    // size glyphs are rasterized at for tracing
+const HULL_MAXV  = 12;     // max vertices kept per glyph hull
+const TOY_DENS   = 1.4;    // toys are denser than letters
+const SND_BODY   = 200;    // letter-letter impact speed that earns a plink
+const SND_WALL   = 140;    // wall/floor impact speed that earns one
+
+let mode = "seated";    // seated | live | homing   (letters only — toys never seat)
+let raf = 0, lastT = 0;
 let held = null, pointerId = null;
-let interacted = false;
+let spilled = false;
 const target = { x:0, y:0 };
 const samples = [];
-
-const bodies = letters.map((el, i) => ({
-  el, i,
-  x:0, y:0, vx:0, vy:0,
-  a:0, va:0,             // angle (rad) + angular velocity
-  r:20, halfW:14, halfH:22,
-  homeDelay:0, homed:true,
-  dropAt:0,
-}));
 
 function seatRect(i){ return seats[i].getBoundingClientRect(); }
 
@@ -330,8 +367,226 @@ function plink(b, speed){
   if(now - lastPlink < 60) return;
   lastPlink = now;
   const s = Math.min(speed, 2000);
-  const base = Math.max(120, 420 - b.r * 4);   // small letters ring higher
-  tone(base + s * .06, base * .7, .08, Math.min(.09, .02 + (s / 2000) * .07));
+  const base = b.toneBase || Math.max(120, 420 - b.rad * 2.2);  // small letters ring higher
+  const dur  = b.toneDur  || .08;                               // toys thunk longer + lower
+  tone(base + s * .06, base * .7, dur, Math.min(.09, .02 + (s / 2000) * .07));
+}
+
+/* ================================================================
+   Glyph hulls — each unique character is rasterized once at 128px,
+   its silhouette convex-hulled (Andrew's monotone chain), thinned
+   to a dozen vertices, and kept in em units relative to the pen
+   origin + baseline so it can be scaled to whatever size the
+   headline happens to render at.
+   ================================================================ */
+const FONT_STACK = '"General Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+const UNIQUE = [...new Set("michaelmofina")];
+const HCW = 192, HCH = 208, HPX = 28, HBY = 156;   // canvas, pen x, baseline y
+const hullCanvas = document.createElement("canvas");
+hullCanvas.width = HCW; hullCanvas.height = HCH;
+const hctx = hullCanvas.getContext("2d", { willReadFrequently:true });
+const HULLS = {};          // char -> vertices in em units, y negative above baseline
+let baselineEm = .875;     // where the baseline sits inside a line-height:1 box
+let hullsBuilt = false;
+
+function cross3(ox, oy, ax, ay, bx, by){
+  return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+}
+
+function convexHull(pts){
+  pts.sort((p, q) => p.x - q.x || p.y - q.y);
+  if(pts.length < 3) return pts.slice();
+  const lo = [];
+  for(const p of pts){
+    while(lo.length >= 2 && cross3(lo[lo.length-2].x, lo[lo.length-2].y,
+          lo[lo.length-1].x, lo[lo.length-1].y, p.x, p.y) <= 0) lo.pop();
+    lo.push(p);
+  }
+  const hi = [];
+  for(let i = pts.length - 1; i >= 0; i--){
+    const p = pts[i];
+    while(hi.length >= 2 && cross3(hi[hi.length-2].x, hi[hi.length-2].y,
+          hi[hi.length-1].x, hi[hi.length-1].y, p.x, p.y) <= 0) hi.pop();
+    hi.push(p);
+  }
+  lo.pop(); hi.pop();
+  return lo.concat(hi);
+}
+
+/* thin the hull to HULL_MAXV verts, but never remove the extremes —
+   the true bottom of the glyph must survive or floors would lie */
+function simplifyHull(h){
+  while(h.length > HULL_MAXV){
+    let loI = 0, hiI = 0, leI = 0, riI = 0;
+    for(let i = 1; i < h.length; i++){
+      if(h[i].y > h[loI].y) loI = i;
+      if(h[i].y < h[hiI].y) hiI = i;
+      if(h[i].x < h[leI].x) leI = i;
+      if(h[i].x > h[riI].x) riI = i;
+    }
+    let bi = -1, ba = Infinity;
+    for(let i = 0; i < h.length; i++){
+      if(i === loI || i === hiI || i === leI || i === riI) continue;
+      const p = h[(i + h.length - 1) % h.length], c = h[i], n = h[(i + 1) % h.length];
+      const a = Math.abs(cross3(p.x, p.y, c.x, c.y, n.x, n.y));
+      if(a < ba){ ba = a; bi = i; }
+    }
+    if(bi < 0) break;
+    h.splice(bi, 1);
+  }
+  return h;
+}
+
+function signedArea(v){
+  let a = 0;
+  for(let i = 0; i < v.length; i++){
+    const j = (i + 1) % v.length;
+    a += v[i].x * v[j].y - v[j].x * v[i].y;
+  }
+  return a * .5;
+}
+
+function extractHull(ch){
+  hctx.clearRect(0, 0, HCW, HCH);
+  hctx.font = "400 " + HULL_PX + "px " + FONT_STACK;
+  hctx.textBaseline = "alphabetic";
+  hctx.fillStyle = "#000";
+  hctx.fillText(ch, HPX, HBY);
+  const img = hctx.getImageData(0, 0, HCW, HCH).data;
+  const pts = [];
+  for(let y = 0; y < HCH; y++){
+    let lo = -1, hi = -1;
+    for(let x = 0; x < HCW; x++){
+      if(img[(y * HCW + x) * 4 + 3] > 12){ if(lo < 0) lo = x; hi = x; }
+    }
+    if(lo >= 0){
+      // pixel corners, so the hull covers the ink to its outermost edge
+      pts.push({x:lo, y}, {x:hi + 1, y}, {x:lo, y:y + 1}, {x:hi + 1, y:y + 1});
+    }
+  }
+  if(!pts.length) return null;
+  const h = simplifyHull(convexHull(pts));
+  if(signedArea(h) < 0) h.reverse();   // keep positive winding (outward normals)
+  return h.map(p => ({ x:(p.x - HPX) / HULL_PX, y:(p.y - HBY) / HULL_PX }));
+}
+
+function buildHulls(){
+  hctx.font = "400 " + HULL_PX + "px " + FONT_STACK;
+  const m = hctx.measureText("mh");
+  const asc  = (m.fontBoundingBoxAscent  || HULL_PX * .76) / HULL_PX;
+  const desc = (m.fontBoundingBoxDescent || HULL_PX * .24) / HULL_PX;
+  // line-height:1 → half-leading centres the font box in the em box
+  baselineEm = (1 - (asc + desc)) / 2 + asc;
+  for(const ch of UNIQUE){
+    let h = null;
+    try{ h = extractHull(ch); }catch(err){ h = null; }
+    if(h && h.length >= 3){ HULLS[ch] = h; }
+    else{
+      // the canvas said nothing (blocked pixels, exotic env):
+      // a plain x-height box is a liveable stand-in
+      const w = Math.max(.2, hctx.measureText(ch).width / HULL_PX);
+      HULLS[ch] = [ {x:0, y:-.68}, {x:w, y:-.68}, {x:w, y:0}, {x:0, y:0} ];
+    }
+  }
+  hullsBuilt = true;
+}
+
+/* ---- rigid bodies ---- */
+const bodies = [];                 // 13 letters first; the two toys join later
+const bodyByEl = new Map();
+
+function mkBody(el, kind){
+  const b = {
+    el, kind, i:-1, ch:"",
+    x:0, y:0, a:0,               // centroid position + angle
+    vx:0, vy:0, va:0,            // linear + angular velocity
+    m:1, invM:1, I:1, invI:1,    // mass + moment of inertia about the centroid
+    iM:0, iI:0,                  // effective inverse masses this frame (0 = immovable)
+    cx:0, cy:0,                  // where the centroid sits inside the element's box
+    nv:0, lv:[], wv:[],          // hull: local verts + world verts (preallocated)
+    rad:20,                      // bounding radius about the centroid
+    minx:0, miny:0, maxx:0, maxy:0,   // world AABB for the broadphase
+    sleeping:false, still:0, sx:0, sy:0, sa:0, touch:0,
+    homeDelay:0, homed:true, dropAt:0,
+    entering:false,              // toys fall in from above the ceiling plane
+    toneBase:0, toneDur:0,
+  };
+  for(let i = 0; i < HULL_MAXV; i++){ b.lv.push({x:0, y:0}); b.wv.push({x:0, y:0}); }
+  bodyByEl.set(el, b);
+  return b;
+}
+
+letters.forEach((el, i) => {
+  const b = mkBody(el, "letter");
+  b.i = i; b.ch = el.textContent;
+  bodies.push(b);
+});
+
+function wake(b){ b.sleeping = false; b.still = 0; b.sx = b.x; b.sy = b.y; b.sa = b.a; }
+function wakeAll(){ for(const b of bodies) wake(b); }
+
+/* ---- polygon mass properties: area, centroid, inertia about it ---- */
+const geomOut = { area:1, cx:0, cy:0, I:1 };
+function polyProps(v, n, dens){
+  let A = 0, cx = 0, cy = 0;
+  for(let i = 0; i < n; i++){
+    const j = (i + 1) % n;
+    const cr = v[i].x * v[j].y - v[j].x * v[i].y;
+    A += cr; cx += (v[i].x + v[j].x) * cr; cy += (v[i].y + v[j].y) * cr;
+  }
+  A *= .5;
+  const inv6A = 1 / (6 * A);
+  cx *= inv6A; cy *= inv6A;
+  let I = 0;
+  for(let i = 0; i < n; i++){
+    const j = (i + 1) % n;
+    const x1 = v[i].x - cx, y1 = v[i].y - cy;
+    const x2 = v[j].x - cx, y2 = v[j].y - cy;
+    const cr = x1 * y2 - x2 * y1;
+    I += cr * (x1 * x1 + x1 * x2 + x2 * x2 + y1 * y1 + y1 * y2 + y2 * y2);
+  }
+  geomOut.area = Math.abs(A);
+  geomOut.cx = cx; geomOut.cy = cy;
+  geomOut.I = Math.max(1, Math.abs(I) * dens / 12);
+  return geomOut;
+}
+
+const geomTmp = [];
+for(let i = 0; i < HULL_MAXV; i++) geomTmp.push({x:0, y:0});
+
+function fontPx(){
+  return parseFloat(getComputedStyle(visname).fontSize) || 64;
+}
+
+/* scale a letter's unit hull to the rendered font size, in box coords,
+   then re-express it about the centroid. An 'l' spins about its stem,
+   not about the empty middle of its span. */
+function setLetterGeometry(b, F){
+  const unit = HULLS[b.ch];
+  if(!unit) return;
+  const n = Math.min(unit.length, HULL_MAXV);
+  const bl = baselineEm * F;                 // baseline y inside the span box
+  for(let i = 0; i < n; i++){
+    geomTmp[i].x = unit[i].x * F;
+    geomTmp[i].y = bl + unit[i].y * F;
+  }
+  const g = polyProps(geomTmp, n, 1);
+  b.nv = n; b.cx = g.cx; b.cy = g.cy;
+  b.m = Math.max(40, g.area); b.invM = 1 / b.m;
+  b.I = g.I; b.invI = 1 / b.I;
+  let r = 0;
+  for(let i = 0; i < n; i++){
+    b.lv[i].x = geomTmp[i].x - g.cx;
+    b.lv[i].y = geomTmp[i].y - g.cy;
+    r = Math.max(r, Math.hypot(b.lv[i].x, b.lv[i].y));
+  }
+  b.rad = r;
+}
+
+function refreshGeometry(){
+  if(!hullsBuilt) buildHulls();
+  const F = fontPx();
+  for(const b of bodies) if(b.kind === "letter") setLetterGeometry(b, F);
 }
 
 /* ---- go live: letters leave the text flow and take physics state ---- */
@@ -348,29 +603,39 @@ function goLive(){
   document.querySelectorAll(".fade").forEach(el => { el.style.animation = "none"; });
   const name = document.getElementById("name");
   name.style.height = name.getBoundingClientRect().height + "px"; // keep hero layout
+  refreshGeometry();                          // hulls at the rendered size
   const now = performance.now();
-  bodies.forEach(b => {
+  for(const b of bodies){
+    if(b.kind !== "letter") continue;
     const r = b.el.getBoundingClientRect();
-    b.x = r.left + r.width / 2;
-    b.y = r.top + r.height / 2;
-    b.halfW = Math.max(8, r.width / 2);
-    b.halfH = Math.max(10, r.height / 2);
-    b.r = Math.max(b.halfW, b.halfH * .82);
-    b.vx = (Math.random() - .5) * 60;    // a whisper of sideways drift
+    b.x = r.left + b.cx;                      // the body lives at the glyph's
+    b.y = r.top + b.cy;                       // centroid, not the box centre
+    b.vx = (Math.random() - .5) * 60;         // a whisper of sideways drift
     b.vy = 0;
     b.a = 0;
     b.va = (Math.random() - .5) * 2.4;
     b.homed = false;
     b.dropAt = now + b.i * 26 + Math.random() * 90;  // ragged, not synchronized
-  });
-  letters.forEach(b => b.classList.add("live"));
+  }
+  letters.forEach(el => el.classList.add("live"));
   mode = "live";
-  render(now);   // position synchronously — no one-frame flash at the origin
+  spilled = true;
+  wakeAll();       // toys under the raining letters must notice
+  render(now);     // position synchronously — no one-frame flash at the origin
   start();
 }
 
 /* the fall begins once the name has had a moment to be read */
 let fallTimer = setTimeout(goLive, 1400);
+
+/* if the first hull pass measured the fallback face, retrace once the
+   real font arrives; live bodies pick up the corrected outlines */
+if(document.fonts && document.fonts.ready){
+  document.fonts.ready.then(() => {
+    buildHulls();
+    if(mode !== "seated"){ refreshGeometry(); wakeAll(); start(); }
+  }).catch(() => {});
+}
 
 /* ---- grab / drag / fling ---- */
 function pushSample(e){
@@ -379,23 +644,27 @@ function pushSample(e){
   while(samples.length && t - samples[0].t > 110) samples.shift();
 }
 function onDown(e){
-  if(mode === "homing") return;
-  let el = e.target.closest ? e.target.closest(".letter.live") : null;
+  let el = e.target.closest
+    ? (e.target.closest(".letter.live") || e.target.closest(".toy")) : null;
   if(!el && mode === "seated" && e.target.closest && e.target.closest("#visname .letter")){
     el = e.target.closest("#visname .letter");   // grabbing the seated name spills it
     clearTimeout(fallTimer);
     goLive();
   }
   if(!el) return;
-  interacted = true;
+  const b = bodyByEl.get(el);
+  if(!b) return;
+  if(mode === "homing" && b.kind === "letter") return;  // homing letters are spoken for
   ensureAudio();
-  held = bodies[letters.indexOf(el)];
+  if(b.kind === "letter" && mode === "live") b.dropAt = 0;  // a grabbed letter falls now
+  held = b;
   held.el.classList.add("held");
   pointerId = e.pointerId;
   samples.length = 0;
   pushSample(e);
   target.x = e.clientX; target.y = e.clientY;
   document.body.classList.add("grabbing");
+  wakeAll();                                   // a hand in the pile disturbs everything
   addEventListener("pointermove", onMove);
   addEventListener("pointerup", onUp);
   addEventListener("pointercancel", onUp);
@@ -425,122 +694,329 @@ function onUp(e){
       held.va = held.vx * .004 * (Math.random() < .5 ? -1 : 1);
     }
     held.el.classList.remove("held");
+    wake(held);
     held = null;
   }
   start();
 }
 addEventListener("pointerdown", onDown);
 
-/* ---- home: the name puts itself back together ---- */
+/* ---- home: the name puts itself back together (letters only) ---- */
 function goHome(){
   if(mode === "seated" || mode === "homing") return;
   clearTimeout(fallTimer);
-  if(held){ held.el.classList.remove("held"); held = null; }
-  if(pointerId !== null){
-    removeEventListener("pointermove", onMove);
-    removeEventListener("pointerup", onUp);
-    removeEventListener("pointercancel", onUp);
-    document.body.classList.remove("grabbing");
-    pointerId = null;
+  if(held && held.kind === "letter"){          // the hand lets go of letters;
+    held.el.classList.remove("held");          // a held toy stays held
+    held = null;
+    if(pointerId !== null){
+      removeEventListener("pointermove", onMove);
+      removeEventListener("pointerup", onUp);
+      removeEventListener("pointercancel", onUp);
+      document.body.classList.remove("grabbing");
+      pointerId = null;
+    }
   }
   const now = performance.now();
-  bodies.forEach((b, i) => { b.homeDelay = now + i * 35; b.homed = false; });
+  const TAU = Math.PI * 2;
+  for(const b of bodies){
+    if(b.kind !== "letter") continue;
+    b.homeDelay = now + b.i * 35;
+    b.homed = false;
+    b.a -= Math.round(b.a / TAU) * TAU;   // untwist the short way, not N full turns
+  }
+  wakeAll();          // toys must notice their bed of letters leaving
   mode = "homing";
   start();
 }
 function seatAll(){
   mode = "seated";
-  bodies.forEach(b => {
+  for(const b of bodies){
+    if(b.kind !== "letter") continue;
     b.el.classList.remove("live");
     b.el.style.transform = "";
-  });
+  }
   // the letters never left their word spans — dropping .live restores text flow
   document.getElementById("name").style.height = "";
 }
 addEventListener("keydown", e => { if(e.key === "Escape") goHome(); });
 addEventListener("dblclick", goHome);
 
+/* ================================================================
+   Contacts — AABB broadphase, SAT narrowphase with reference-face
+   clipping (up to two contact points per pair), then a small
+   sequential-impulse solver with rotation, friction, and Baumgarte
+   positional cleanup. Everything below reuses preallocated objects;
+   the hot loop allocates nothing.
+   ================================================================ */
+const contacts = [];
+for(let i = 0; i < 160; i++){
+  contacts.push({ a:null, b:null, px:0, py:0, nx:0, ny:0, pen:0,
+                  rax:0, ray:0, rbx:0, rby:0, mN:1, mT:1, bias:0, jn:0, jt:0 });
+}
+let nContacts = 0;
+
+function addContact(A, B, px, py, nx, ny, pen){
+  if(nContacts >= contacts.length) return;
+  const c = contacts[nContacts++];
+  c.a = A; c.b = B; c.px = px; c.py = py; c.nx = nx; c.ny = ny;
+  c.pen = pen; c.jn = 0; c.jt = 0;
+}
+
+function updateWorld(b){
+  const s = Math.sin(b.a), c = Math.cos(b.a);
+  let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+  for(let i = 0; i < b.nv; i++){
+    const wx = b.x + b.lv[i].x * c - b.lv[i].y * s;
+    const wy = b.y + b.lv[i].x * s + b.lv[i].y * c;
+    b.wv[i].x = wx; b.wv[i].y = wy;
+    if(wx < minx) minx = wx; if(wx > maxx) maxx = wx;
+    if(wy < miny) miny = wy; if(wy > maxy) maxy = wy;
+  }
+  b.minx = minx; b.miny = miny; b.maxx = maxx; b.maxy = maxy;
+}
+
+/* SAT: the least-overlapped face of A against B (positive = separated) */
+const satRes = { sep:0, edge:0 };
+function maxSeparation(A, B){
+  let best = -1e9, bestE = 0;
+  for(let i = 0; i < A.nv; i++){
+    const j = (i + 1) % A.nv;
+    const ex = A.wv[j].x - A.wv[i].x, ey = A.wv[j].y - A.wv[i].y;
+    const il = 1 / (Math.hypot(ex, ey) || 1);
+    const nx = ey * il, ny = -ex * il;        // outward for our winding
+    let minD = 1e9;
+    for(let k = 0; k < B.nv; k++){
+      const d = (B.wv[k].x - A.wv[i].x) * nx + (B.wv[k].y - A.wv[i].y) * ny;
+      if(d < minD) minD = d;
+    }
+    if(minD > best){ best = minD; bestE = i; }
+  }
+  satRes.sep = best; satRes.edge = bestE;
+}
+
+/* clip the incident edge to the reference face; emit 1–2 contacts */
+function collidePoly(A, B){
+  maxSeparation(A, B); const sepA = satRes.sep, eA = satRes.edge;
+  if(sepA > 0) return;
+  maxSeparation(B, A); const sepB = satRes.sep, eB = satRes.edge;
+  if(sepB > 0) return;
+  let R, I, edge, flip;
+  if(sepB > sepA + .05){ R = B; I = A; edge = eB; flip = true; }
+  else                 { R = A; I = B; edge = eA; flip = false; }
+
+  const e2 = (edge + 1) % R.nv;
+  const v1x = R.wv[edge].x, v1y = R.wv[edge].y;
+  const v2x = R.wv[e2].x,   v2y = R.wv[e2].y;
+  let ex = v2x - v1x, ey = v2y - v1y;
+  const el0 = Math.hypot(ex, ey) || 1;
+  ex /= el0; ey /= el0;
+  const nx = ey, ny = -ex;                    // reference face normal, R -> I
+
+  // incident edge: the face of I most opposed to the reference normal
+  let bi = 0, bd = 1e9;
+  for(let i = 0; i < I.nv; i++){
+    const j = (i + 1) % I.nv;
+    const iex = I.wv[j].x - I.wv[i].x, iey = I.wv[j].y - I.wv[i].y;
+    const il = 1 / (Math.hypot(iex, iey) || 1);
+    const d = (iey * il) * nx + (-iex * il) * ny;
+    if(d < bd){ bd = d; bi = i; }
+  }
+  const bj = (bi + 1) % I.nv;
+  let p1x = I.wv[bi].x, p1y = I.wv[bi].y;
+  let p2x = I.wv[bj].x, p2y = I.wv[bj].y;
+
+  // clip to the side plane at v1 (keep the +e side)
+  let d1 = (p1x - v1x) * ex + (p1y - v1y) * ey;
+  let d2 = (p2x - v1x) * ex + (p2y - v1y) * ey;
+  if(d1 < 0 && d2 < 0) return;
+  if(d1 < 0){ const t = d1 / (d1 - d2); p1x += (p2x - p1x) * t; p1y += (p2y - p1y) * t; }
+  else if(d2 < 0){ const t = d2 / (d2 - d1); p2x += (p1x - p2x) * t; p2y += (p1y - p2y) * t; }
+
+  // clip to the side plane at v2 (keep the -e side)
+  d1 = (p1x - v2x) * -ex + (p1y - v2y) * -ey;
+  d2 = (p2x - v2x) * -ex + (p2y - v2y) * -ey;
+  if(d1 < 0 && d2 < 0) return;
+  if(d1 < 0){ const t = d1 / (d1 - d2); p1x += (p2x - p1x) * t; p1y += (p2y - p1y) * t; }
+  else if(d2 < 0){ const t = d2 / (d2 - d1); p2x += (p1x - p2x) * t; p2y += (p1y - p2y) * t; }
+
+  // keep whatever ended up behind the face; normal must point A -> B
+  const cnx = flip ? -nx : nx, cny = flip ? -ny : ny;
+  let s1 = (p1x - v1x) * nx + (p1y - v1y) * ny;
+  if(s1 <= 0) addContact(A, B, p1x, p1y, cnx, cny, -s1);
+  let s2 = (p2x - v1x) * nx + (p2y - v1y) * ny;
+  if(s2 <= 0) addContact(A, B, p2x, p2y, cnx, cny, -s2);
+}
+
+/* walls and floor as planes; up to two deepest vertices per plane so a
+   flat landing rests on both corners of its bottom edge */
+let pd1 = 0, pd2 = 0, pi1 = -1, pi2 = -1;
+function planePick(b, sideX, sideY, offset){
+  pd1 = -1e9; pd2 = -1e9; pi1 = -1; pi2 = -1;
+  for(let i = 0; i < b.nv; i++){
+    const d = b.wv[i].x * sideX + b.wv[i].y * sideY - offset;   // penetration depth
+    if(d > pd1){ pd2 = pd1; pi2 = pi1; pd1 = d; pi1 = i; }
+    else if(d > pd2){ pd2 = d; pi2 = i; }
+  }
+}
+function planeContacts(b, W, H){
+  // floor — the line the critique was about: hull verts, not a circle
+  planePick(b, 0, 1, H);
+  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 0, 1, Math.max(pd1, 0));
+  if(pd2 > -1 && pi2 !== pi1) addContact(b, null, b.wv[pi2].x, b.wv[pi2].y, 0, 1, Math.max(pd2, 0));
+  // left wall
+  planePick(b, -1, 0, 0);
+  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, -1, 0, Math.max(pd1, 0));
+  // right wall
+  planePick(b, 1, 0, W);
+  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 1, 0, Math.max(pd1, 0));
+  // ceiling — off while a toy is still dropping in from above
+  if(!b.entering){
+    planePick(b, 0, -1, 0);
+    if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 0, -1, Math.max(pd1, 0));
+  }
+}
+
+/* precompute effective masses + restitution bias; fire impact sounds */
+function prepContact(c){
+  const A = c.a, B = c.b;
+  A.touch = 1; if(B) B.touch = 1;
+  c.rax = c.px - A.x; c.ray = c.py - A.y;
+  if(B){ c.rbx = c.px - B.x; c.rby = c.py - B.y; }
+  const raN = c.rax * c.ny - c.ray * c.nx;
+  const rbN = B ? (c.rbx * c.ny - c.rby * c.nx) : 0;
+  const iMb = B ? B.iM : 0, iIb = B ? B.iI : 0;
+  const kn = A.iM + iMb + A.iI * raN * raN + iIb * rbN * rbN;
+  c.mN = kn > 1e-9 ? 1 / kn : 0;      // two immovables: no impulse, no drama
+  const tx = -c.ny, ty = c.nx;
+  const raT = c.rax * ty - c.ray * tx;
+  const rbT = B ? (c.rbx * ty - c.rby * tx) : 0;
+  const kt = A.iM + iMb + A.iI * raT * raT + iIb * rbT * rbT;
+  c.mT = kt > 1e-9 ? 1 / kt : 0;
+
+  let rvx = -(A.vx - A.va * c.ray), rvy = -(A.vy + A.va * c.rax);
+  if(B){ rvx += B.vx - B.va * c.rby; rvy += B.vy + B.va * c.rbx; }
+  const vn = rvx * c.nx + rvy * c.ny;
+  c.bias = vn < -REST_MIN ? -REST * vn : 0;
+
+  // an arriving impact wakes sleepers and earns a sound
+  if(vn < -WAKE_V){
+    if(A.sleeping) wake(A);
+    if(B && B.sleeping) wake(B);
+  }
+  if(vn < -(B ? SND_BODY : SND_WALL)){
+    plink(B && B.rad < A.rad ? B : A, -vn);
+  }
+}
+
+function solveVel(c){
+  const A = c.a, B = c.b;
+  let rvx = -(A.vx - A.va * c.ray), rvy = -(A.vy + A.va * c.rax);
+  if(B){ rvx += B.vx - B.va * c.rby; rvy += B.vy + B.va * c.rbx; }
+  const vn = rvx * c.nx + rvy * c.ny;
+  let dj = -(vn - c.bias) * c.mN;
+  const oj = c.jn;
+  c.jn = Math.max(oj + dj, 0);
+  dj = c.jn - oj;
+  let px = dj * c.nx, py = dj * c.ny;
+  A.vx -= px * A.iM; A.vy -= py * A.iM;
+  A.va -= (c.rax * py - c.ray * px) * A.iI;
+  if(B){
+    B.vx += px * B.iM; B.vy += py * B.iM;
+    B.va += (c.rbx * py - c.rby * px) * B.iI;
+  }
+  // Coulomb-ish friction: tangential impulse clamped to mu * normal
+  rvx = -(A.vx - A.va * c.ray); rvy = -(A.vy + A.va * c.rax);
+  if(B){ rvx += B.vx - B.va * c.rby; rvy += B.vy + B.va * c.rbx; }
+  const tx = -c.ny, ty = c.nx;
+  const vt = rvx * tx + rvy * ty;
+  let djt = -vt * c.mT;
+  const maxF = MU * c.jn, ot = c.jt;
+  c.jt = Math.min(Math.max(ot + djt, -maxF), maxF);
+  djt = c.jt - ot;
+  px = djt * tx; py = djt * ty;
+  A.vx -= px * A.iM; A.vy -= py * A.iM;
+  A.va -= (c.rax * py - c.ray * px) * A.iI;
+  if(B){
+    B.vx += px * B.iM; B.vy += py * B.iM;
+    B.va += (c.rbx * py - c.rby * px) * B.iI;
+  }
+}
+
+function solvePos(c){
+  if(c.pen <= SLOP) return;
+  const A = c.a, B = c.b;
+  const iMb = B ? B.iM : 0;
+  const total = A.iM + iMb;
+  if(total <= 0) return;
+  const corr = BAUM * (c.pen - SLOP) / total;
+  A.x -= c.nx * corr * A.iM; A.y -= c.ny * corr * A.iM;
+  if(B){ B.x += c.nx * corr * iMb; B.y += c.ny * corr * iMb; }
+  c.pen -= BAUM * (c.pen - SLOP);
+}
+
 /* ---- the loop ---- */
 function start(){
   if(!raf){ lastT = performance.now(); raf = requestAnimationFrame(step); }
 }
+
+function simActive(b, t){
+  if(b.kind === "toy") return true;          // toys never stop being physical
+  if(mode === "live") return t >= b.dropAt || b === held;
+  return false;                              // seated / homing letters go elsewhere
+}
+
+function floorSnap(b, H){
+  // asleep means at rest — put the lowest hull vertex exactly ON the line
+  updateWorld(b);
+  let maxy = -1e9;
+  for(let i = 0; i < b.nv; i++) if(b.wv[i].y > maxy) maxy = b.wv[i].y;
+  const d = H - maxy;
+  if(d > -3 && d < 3) b.y += d;
+}
+
 function step(t){
   raf = 0;
-  const dt = Math.min((t - lastT) / 1000, 1 / 30);
+  const dt = Math.min(Math.max((t - lastT) / 1000, .0005), 1 / 30);
   lastT = t;
-  const w = innerWidth, h = innerHeight;
+  const W = innerWidth, H = innerHeight;
 
-  if(mode === "live"){
-    for(const b of bodies){
-      if(b === held){
-        const k = 1 - Math.exp(-dt * 30);
-        b.x += (target.x - b.x) * k;
-        b.y += (target.y - b.y) * k;
-        b.vx = b.vy = 0;
-        continue;
-      }
-      if(t < b.dropAt) continue;         // still waiting its turn to fall
-      b.vy += G * dt;
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-      b.a += b.va * dt;
-
-      if(b.x < b.r && b.vx < 0)          { b.x = b.r;     plink(b, -b.vx); b.vx = -b.vx * REST; b.va = -b.va * .6; }
-      else if(b.x > w - b.r && b.vx > 0) { b.x = w - b.r; plink(b,  b.vx); b.vx = -b.vx * REST; b.va = -b.va * .6; }
-      if(b.y < b.r && b.vy < 0)          { b.y = b.r;     plink(b, -b.vy); b.vy = -b.vy * REST; }
-      else if(b.y > h - b.r && b.vy > 0){
-        b.y = h - b.r;
-        if(b.vy > 90) plink(b, b.vy);
-        b.vy = -b.vy * REST;
-        if(-b.vy < 55) b.vy = 0;
-        b.va = b.va * .5 + b.vx * .006;  // landing converts slide into tumble
-      }
-      if(b.y >= h - b.r - .5 && b.vy === 0){
-        b.vx *= Math.exp(-FLOOR_F * dt);
-        b.va *= Math.exp(-3 * dt);
-        if(Math.abs(b.vx) < 5) b.vx = 0;
-        if(Math.abs(b.va) < .05) b.va = 0;
-      }
-    }
-
-    /* letter-letter collisions: two relaxation passes of equal-mass circles */
-    for(let pass = 0; pass < 2; pass++){
-      for(let i = 0; i < bodies.length; i++){
-        const A = bodies[i];
-        if(t < A.dropAt) continue;
-        for(let j = i + 1; j < bodies.length; j++){
-          const B = bodies[j];
-          if(t < B.dropAt) continue;
-          const dx = B.x - A.x, dy = B.y - A.y;
-          const min = (A.r + B.r) * .78;   // circles overlap a little: letters nest
-          const d2 = dx * dx + dy * dy;
-          if(d2 >= min * min || d2 === 0) continue;
-          const d = Math.sqrt(d2);
-          const nx = dx / d, ny = dy / d;
-          const push = (min - d) / 2;
-          const aHeld = A === held, bHeld = B === held;
-          if(!aHeld){ A.x -= nx * push * (bHeld ? 2 : 1); A.y -= ny * push * (bHeld ? 2 : 1); }
-          if(!bHeld){ B.x += nx * push * (aHeld ? 2 : 1); B.y += ny * push * (aHeld ? 2 : 1); }
-          const rel = (B.vx - A.vx) * nx + (B.vy - A.vy) * ny;
-          if(rel < 0 && pass === 0){
-            const imp = -rel * .5 * (1 + .3);
-            if(!aHeld){ A.vx -= imp * nx; A.vy -= imp * ny; A.va += (Math.random() - .5) * .8; }
-            if(!bHeld){ B.vx += imp * nx; B.vy += imp * ny; B.va += (Math.random() - .5) * .8; }
-            if(-rel > 260) plink(A, -rel);
-          }
-          if(!aHeld){ A.x = Math.min(Math.max(A.x, A.r), w - A.r); A.y = Math.min(A.y, h - A.r); }
-          if(!bHeld){ B.x = Math.min(Math.max(B.x, B.r), w - B.r); B.y = Math.min(B.y, h - B.r); }
-        }
-      }
-    }
+  // the held body is kinematic: infinite mass to everyone else, chasing
+  // the pointer with a spring lag, carrying real velocity so the pile
+  // feels it shoving through
+  if(held){
+    const k = 1 - Math.exp(-dt * 30);
+    const nx0 = held.x + (target.x - held.x) * k;
+    const ny0 = held.y + (target.y - held.y) * k;
+    held.vx = (nx0 - held.x) / dt;
+    held.vy = (ny0 - held.y) / dt;
+    held.va = 0;
+    held.x = nx0; held.y = ny0;
   }
-  else if(mode === "homing"){
+
+  // gravity + drag on everything awake
+  for(const b of bodies){
+    b.sim = simActive(b, t);
+    b.touch = 0;
+    b.iM = (b === held || b.sleeping) ? 0 : b.invM;
+    b.iI = (b === held || b.sleeping) ? 0 : b.invI;
+    if(!b.sim || b === held || b.sleeping) continue;
+    b.vy += G * dt;
+    const dmp = 1 - LIN_DAMP * dt;
+    b.vx *= dmp; b.vy *= dmp;
+    b.va *= 1 - ANG_DAMP * dt;
+    const sp = Math.hypot(b.vx, b.vy);
+    if(sp > MAXV * 1.8){ b.vx *= MAXV * 1.8 / sp; b.vy *= MAXV * 1.8 / sp; }
+  }
+
+  // homing letters: simple kinematic springs to their seats, no collision —
+  // the toys keep their ordinary physics underneath
+  if(mode === "homing"){
     let allHome = true;
     for(const b of bodies){
-      if(b.homed) continue;
+      if(b.kind !== "letter" || b.homed) continue;
       if(t < b.homeDelay){ allHome = false; continue; }
       const s = seatRect(b.i);
-      const hx = s.left + s.width / 2, hy = s.top + s.height / 2;
+      const hx = s.left + b.cx, hy = s.top + b.cy;
       const K = 170, D = 20;
       b.vx += (-K * (b.x - hx) - D * b.vx) * dt;
       b.vy += (-K * (b.y - hy) - D * b.vy) * dt;
@@ -552,49 +1028,254 @@ function step(t){
         b.x = hx; b.y = hy; b.vx = b.vy = 0; b.a = 0; b.va = 0; b.homed = true;
       } else allHome = false;
     }
-    if(allHome){ seatAll(); return; }
+    if(allHome) seatAll();       // letters return to text; toys carry on below
   }
+
+  // broadphase + narrowphase
+  nContacts = 0;
+  for(const b of bodies){
+    b.col = b.sim && !(b.kind === "letter" && mode === "homing");
+    if(b.col) updateWorld(b);
+  }
+  for(let i = 0; i < bodies.length; i++){
+    const A = bodies[i];
+    if(!A.col) continue;
+    for(let j = i + 1; j < bodies.length; j++){
+      const B = bodies[j];
+      if(!B.col) continue;
+      if(A.sleeping && B.sleeping) continue;
+      if(A.minx > B.maxx || B.minx > A.maxx || A.miny > B.maxy || B.miny > A.maxy) continue;
+      if(A === held && B.sleeping) wake(B);   // the hand shoves sleepers awake
+      if(B === held && A.sleeping) wake(A);
+      collidePoly(A, B);
+    }
+    if(!A.sleeping || A === held) planeContacts(A, W, H);
+  }
+
+  for(let i = 0; i < nContacts; i++) prepContact(contacts[i]);
+  for(let it = 0; it < VEL_ITERS; it++)
+    for(let i = 0; i < nContacts; i++) solveVel(contacts[i]);
+
+  // a body that is slow AND touching something is trying to settle:
+  // bleed off the residual rock so thin letters stop teetering
+  for(const b of bodies){
+    if(!b.sim || b === held || b.sleeping || !b.touch) continue;
+    if(Math.hypot(b.vx, b.vy) < 50){
+      b.va *= Math.max(0, 1 - SETTLE_ANG * dt);
+      b.vx *= Math.max(0, 1 - SETTLE_LIN * dt);
+    }
+  }
+
+  // integrate positions
+  for(const b of bodies){
+    if(!b.sim || b === held || b.sleeping) continue;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.a += b.va * dt;
+    if(b.entering && b.y > b.rad + 6) b.entering = false;  // fully inside now
+  }
+
+  for(let it = 0; it < POS_ITERS; it++)
+    for(let i = 0; i < nContacts; i++) solvePos(contacts[i]);
 
   /* nothing may ever be lost */
   for(const b of bodies){
     if(!isFinite(b.x + b.y + b.vx + b.vy + b.a + b.va)){
-      const s = seatRect(b.i);
-      b.x = s.left + s.width / 2; b.y = s.top + s.height / 2;
+      if(b.kind === "letter"){
+        const s = seatRect(b.i);
+        b.x = s.left + b.cx; b.y = s.top + b.cy;
+      } else {
+        b.x = W / 2; b.y = H - b.rad - 2;
+      }
       b.vx = b.vy = b.a = b.va = 0;
+    }
+    if(b.sim && b !== held){
+      if(b.x < 2) b.x = 2;
+      if(b.x > W - 2) b.x = W - 2;
+      if(b.y > H - 2) b.y = H - 2;
+      if(!b.entering && b.y < -b.rad * 2) b.y = -b.rad * 2;
     }
   }
 
   render(t);
 
-  /* sleep only after everything has been genuinely quiet for ~half a second,
-     so a throw's apex (speeds ≈ 0 for a frame) never freezes a letter mid-air */
-  const moving = bodies.some(b => t < b.dropAt ||
-    Math.abs(b.vx) + Math.abs(b.vy) + Math.abs(b.va * 60) > 6);
-  stillFrames = moving ? 0 : stillFrames + 1;
-  const busy = held || mode === "homing" || stillFrames < 30;
-  if(mode !== "seated" && busy) raf = requestAnimationFrame(step);
+  // per-body sleep: genuinely still for a beat, then out cold —
+  // a throw's apex (speed ~0 for a frame) never freezes anything
+  let anyAwake = false, anyWaiting = false, justSnapped = false;
+  for(const b of bodies){
+    if(!b.sim){
+      if(b.kind === "letter" && mode === "live" && t < b.dropAt) anyWaiting = true;
+      continue;
+    }
+    if(b === held){ anyAwake = true; continue; }
+    if(b.sleeping) continue;
+    const slowV = Math.hypot(b.vx, b.vy) < SLEEP_LIN && Math.abs(b.va) < SLEEP_ANG;
+    const nearAnchor = Math.abs(b.x - b.sx) < SLEEP_DX &&
+                       Math.abs(b.y - b.sy) < SLEEP_DX &&
+                       Math.abs(b.a - b.sa) < SLEEP_DA;
+    if((slowV || nearAnchor) && !b.entering){
+      // resting bodies still show spiky per-frame speeds (the solver's
+      // heartbeat), so "hasn't actually gone anywhere" also counts as still
+      b.still += dt;
+      if(b.still > SLEEP_T){
+        b.sleeping = true;
+        b.vx = b.vy = b.va = 0;
+        floorSnap(b, H);
+        justSnapped = true;
+        continue;
+      }
+    } else {
+      b.sx = b.x; b.sy = b.y; b.sa = b.a;
+      b.still = 0;
+    }
+    anyAwake = true;
+  }
+
+  // a body snapped flush this frame was already painted pre-snap;
+  // repaint so the loop never stops on a stale, ~1px-off frame
+  if(justSnapped) render(t);
+
+  const busy = held || mode === "homing" || anyAwake || anyWaiting;
+  if(busy) raf = requestAnimationFrame(step);
 }
 
 function render(t){
   for(const b of bodies){
-    if(mode === "live" && t < b.dropAt && b !== held) {
-      // waiting letters hold their seat, pixel-perfect
-      b.el.style.transform = "translate3d(" + (b.x - b.halfW).toFixed(2) + "px," +
-                             (b.y - b.halfH).toFixed(2) + "px,0)";
-      continue;
+    if(b.kind === "letter"){
+      if(mode === "seated") continue;
+      if(mode === "live" && t < b.dropAt && b !== held){
+        // waiting letters hold their seat, pixel-perfect
+        b.el.style.transform = "translate3d(" + (b.x - b.cx).toFixed(2) + "px," +
+                               (b.y - b.cy).toFixed(2) + "px,0)";
+        continue;
+      }
     }
-    b.el.style.transform = "translate3d(" + (b.x - b.halfW).toFixed(2) + "px," +
-                           (b.y - b.halfH).toFixed(2) + "px,0) rotate(" + b.a.toFixed(3) + "rad)";
+    // place the centroid, rotate about it, then offset back to the box corner
+    b.el.style.transform = "translate3d(" + b.x.toFixed(2) + "px," + b.y.toFixed(2) +
+      "px,0) rotate(" + b.a.toFixed(3) + "rad) translate(" +
+      (-b.cx).toFixed(2) + "px," + (-b.cy).toFixed(2) + "px)";
   }
 }
 
-/* ---- resize: seats move; grounded letters stay grounded ---- */
-addEventListener("resize", () => {
-  if(mode === "seated") return;
-  for(const b of bodies){
-    b.x = Math.min(Math.max(b.x, b.r), innerWidth - b.r);
-    b.y = Math.min(b.y, innerHeight - b.r);
+/* ================================================================
+   The toys — a rabbit r1 and an iPhone, drawn entirely with divs and
+   flat fills. They crash the pile a beat after the first spill and
+   then live on this page forever: reassembly ignores them, re-spills
+   rain letters onto them, and they drag and fling like everything else.
+   ================================================================ */
+function toyBody(el, w, h, cut){
+  const b = mkBody(el, "toy");
+  const w2 = w / 2, h2 = h / 2, c = cut;
+  const oct = [
+    {x:-w2 + c, y:-h2}, {x:w2 - c, y:-h2}, {x:w2, y:-h2 + c}, {x:w2, y:h2 - c},
+    {x:w2 - c, y:h2}, {x:-w2 + c, y:h2}, {x:-w2, y:h2 - c}, {x:-w2, y:-h2 + c},
+  ];
+  const g = polyProps(oct, 8, TOY_DENS);
+  b.nv = 8;
+  b.cx = w2; b.cy = h2;              // symmetric: centroid = box centre
+  b.m = Math.max(60, g.area * TOY_DENS); b.invM = 1 / b.m;
+  b.I = g.I; b.invI = 1 / b.I;
+  let r = 0;
+  for(let i = 0; i < 8; i++){
+    b.lv[i].x = oct[i].x; b.lv[i].y = oct[i].y;
+    r = Math.max(r, Math.hypot(oct[i].x, oct[i].y));
   }
+  b.rad = r;
+  return b;
+}
+
+function capHeightPx(F){
+  const h = HULLS["h"];               // the 'h' ascender stands in for cap height
+  if(!h) return F * .72;
+  let top = 0;
+  for(const p of h) top = Math.min(top, p.y);
+  return Math.max(F * .3, -top * F);
+}
+
+function makeRabbit(side){
+  const el = document.createElement("div");
+  el.className = "toy";
+  el.setAttribute("aria-hidden", "true");
+  const rr = Math.round(side * .16);
+  el.style.cssText = "width:" + side + "px;height:" + side + "px;" +
+    "background:#ff4d06;border-radius:" + rr + "px;";
+  const screen = document.createElement("div");
+  screen.style.cssText = "left:" + Math.round(side * .10) + "px;top:" +
+    Math.round(side * .16) + "px;width:" + Math.round(side * .46) + "px;height:" +
+    Math.round(side * .68) + "px;background:#141416;border-radius:" +
+    Math.max(2, Math.round(side * .05)) + "px;";
+  const wheel = document.createElement("div");
+  const wd = Math.round(side * .30);
+  wheel.style.cssText = "right:" + Math.round(side * .11) + "px;top:" +
+    Math.round((side - wd) / 2) + "px;width:" + wd + "px;height:" + wd + "px;" +
+    "background:#d83c00;border-radius:50%;";
+  el.append(screen, wheel);
+  return { el, w:side, h:side, cut:rr * .75 };
+}
+
+function makePhone(hgt){
+  const w = Math.round(hgt * .48);
+  const el = document.createElement("div");
+  el.className = "toy";
+  el.setAttribute("aria-hidden", "true");
+  const rr = Math.round(w * .22);
+  el.style.cssText = "width:" + w + "px;height:" + hgt + "px;" +
+    "background:#17171a;border-radius:" + rr + "px;";
+  const screen = document.createElement("div");
+  screen.style.cssText = "left:3px;top:3px;right:3px;bottom:3px;" +
+    "border:1px solid #fdfdfb;border-radius:" + Math.max(4, rr - 3) + "px;";
+  const island = document.createElement("div");
+  const iw = Math.round(w * .34), ih = Math.max(4, Math.round(hgt * .035));
+  island.style.cssText = "left:" + Math.round((w - iw) / 2) + "px;top:" +
+    Math.round(hgt * .055) + "px;width:" + iw + "px;height:" + ih + "px;" +
+    "background:#000;border-radius:" + ih + "px;";
+  el.append(screen, island);
+  return { el, w, h:hgt, cut:rr * .75 };
+}
+
+function spawnToy(which){
+  if(!hullsBuilt) buildHulls();
+  const F = fontPx();
+  const cap = capHeightPx(F);
+  const spec = which === "r1" ? makeRabbit(Math.round(cap * 1.25))
+                              : makePhone(Math.round(cap * 1.5));
+  const b = toyBody(spec.el, spec.w, spec.h, spec.cut);
+  b.ch = which;
+  b.x = innerWidth * (which === "r1" ? .3 : .7);
+  b.y = -150;
+  b.vx = 0; b.vy = 0;
+  b.a = (Math.random() - .5) * .5;
+  b.va = (Math.random() - .5) * 1.8;       // a small tossed-in spin
+  b.entering = true;                       // the ceiling looks away while it arrives
+  b.toneBase = which === "r1" ? 104 : 88;  // toys thunk, letters plink
+  b.toneDur = .13;
+  document.body.appendChild(spec.el);
+  bodies.push(b);
+  wake(b);
+  render(performance.now());   // paint it above the ceiling before it moves
+  start();
+}
+
+/* the toys arrive once, a beat after the letters have found the floor */
+function toyTimer(which, delay){
+  setTimeout(() => {
+    if(!spilled){ toyTimer(which, 600); return; }  // outwaits a collapsed viewport
+    spawnToy(which);
+  }, delay);
+}
+toyTimer("r1", 2600);
+toyTimer("phone", 3100);
+
+/* ---- resize: seats move; nothing may leave the viewport ---- */
+addEventListener("resize", () => {
+  if(mode !== "seated") refreshGeometry();   // the headline size tracks vw/vh
+  const W = innerWidth, H = innerHeight;
+  for(const b of bodies){
+    if(b.kind === "letter" && mode === "seated") continue;
+    b.x = Math.min(Math.max(b.x, 2), W - 2);
+    if(!b.entering) b.y = Math.min(b.y, H - 2);
+  }
+  wakeAll();
   start();
 });
 
