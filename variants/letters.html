@@ -337,6 +337,15 @@ function plink(b, speed){
 /* ---- go live: letters leave the text flow and take physics state ---- */
 function goLive(){
   if(mode !== "seated") return;
+  if(innerWidth < 10 || innerHeight < 10){   // collapsed viewport: try again soon
+    fallTimer = setTimeout(goLive, 500);
+    return;
+  }
+  // Kill any still-running entrance animation NOW: a filled transform
+  // animation would make an ancestor the containing block for the
+  // letters' position:fixed. (They stay in the DOM so they keep
+  // inheriting the headline's font size.)
+  document.querySelectorAll(".fade").forEach(el => { el.style.animation = "none"; });
   const name = document.getElementById("name");
   name.style.height = name.getBoundingClientRect().height + "px"; // keep hero layout
   const now = performance.now();
@@ -355,7 +364,6 @@ function goLive(){
     b.dropAt = now + b.i * 26 + Math.random() * 90;  // ragged, not synchronized
   });
   letters.forEach(b => b.classList.add("live"));
-  bodies.forEach(b => document.body.appendChild(b.el)); // escape any containing block
   mode = "live";
   render(now);   // position synchronously — no one-frame flash at the origin
   start();
@@ -446,9 +454,7 @@ function seatAll(){
     b.el.classList.remove("live");
     b.el.style.transform = "";
   });
-  // letters go back into their word spans, in order
-  const words = visname.querySelectorAll(".word");
-  letters.forEach((el, i) => (i < 7 ? words[0] : words[1]).appendChild(el));
+  // the letters never left their word spans — dropping .live restores text flow
   document.getElementById("name").style.height = "";
 }
 addEventListener("keydown", e => { if(e.key === "Escape") goHome(); });
