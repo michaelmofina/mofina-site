@@ -335,6 +335,22 @@ const TOY_DENS   = 1.4;    // toys are denser than letters
 const SND_BODY   = 200;    // letter-letter impact speed that earns a plink
 const SND_WALL   = 140;    // wall/floor impact speed that earns one
 
+/* ---- r1 depth-tumble (the WebGL toy only; the flat fallback has none) ---- */
+const R1_THICK      = .18;   // depth ÷ height — the bake spans z ±0.1814 on a 2.0 model
+const R1_DAMP_AIR   = 1.2;   // tumble decay while airborne, 1/s
+const R1_DAMP_GND   = 2.6;   // tumble decay while touching but still sliding, 1/s
+const R1_KICK_FLING = .002;  // fling speed (px/s) → tumble (rad/s)
+const R1_KICK_HIT   = .0032; // impact speed (px/s) → tumble (rad/s)
+const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (SND_WALL's idea of a hit)
+const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays under ~1.5 turns
+const R1_SET_K      = 70;    // settle spring toward the nearest stable pose, 1/s²
+const R1_EDGE_ZONE  = .32;   // rad — how close to ±90° a tumble must stop to balance edge-on (rare = special)
+const R1_SET_D      = 6.5;   // settle spring damping — under-damped, one visible rock
+const R1_SWAY       = .15;   // max device-roll offset folded into the settled pose, rad
+const R1_HELD_RX    = .12;   // carried pose: the little face-the-viewer tilt (unchanged feel)
+const R1_HELD_RY    = .2;
+const R1_HULL_DW    = 2;     // px of width change that justifies re-cutting the collider
+
 let mode = "seated";    // seated | live | homing   (letters only — toys never seat)
 let raf = 0, lastT = 0;
 let held = null, pointerId = null;
@@ -515,6 +531,10 @@ function mkBody(el, kind){
     entering:false,              // toys fall in from above the ceiling plane
     toneBase:0, toneDur:0,
     draw3d:null,                 // the WebGL r1 hangs its painter here
+    tumbles:false,               // the 3D r1 carries real depth-tumble state:
+    rx:0, ry:0, wx:0, wy:0,      //   pitch/yaw + angular velocities (rad, rad/s)
+    poseCalm:true, lastKick:0,   //   settled flag + impact-kick rate limiter
+    toyW:0, toyH:0, toyCut:0, hullW:0,   // toy box + current depth-aware hull width
   };
   for(let i = 0; i < HULL_MAXV; i++){ b.lv.push({x:0, y:0}); b.wv.push({x:0, y:0}); }
   bodyByEl.set(el, b);
@@ -698,6 +718,18 @@ function onUp(e){
       const sp = Math.hypot(held.vx, held.vy);
       if(sp > MAXV){ held.vx *= MAXV / sp; held.vy *= MAXV / sp; }
       held.va = held.vx * .004 * (Math.random() < .5 ? -1 : 1);
+    }
+    if(held.tumbles){
+      // a thrown r1 leaves the hand tumbling — mostly yaw for a sideways
+      // throw, mostly pitch for a vertical one, capped so it never looks
+      // frantic (a full-speed fling is about one turn in the air)
+      const sp = Math.hypot(held.vx, held.vy);
+      if(sp > 60){
+        const k = Math.min(R1_W_MAX, sp * R1_KICK_FLING);
+        held.wy = clampW(rspin() * k * (.3 + .7 * Math.abs(held.vx) / sp));
+        held.wx = clampW(rspin() * k * (.3 + .7 * Math.abs(held.vy) / sp) * .85);
+        held.poseCalm = false;
+      }
     }
     held.el.classList.remove("held");
     wake(held);
@@ -978,6 +1010,12 @@ function prepContact(c){
   if(vn < -(B ? SND_BODY : SND_WALL)){
     plink(B && B.rad < A.rad ? B : A, -vn);
   }
+  // …and a hard-enough hit sends the 3D r1 tumbling in depth (same
+  // pathway as the plink — no collision detection of its own)
+  if(vn < -R1_KICK_MIN){
+    if(A.tumbles) kickTumble(A, -vn, c.nx, c.ny);
+    else if(B && B.tumbles) kickTumble(B, -vn, c.nx, c.ny);
+  }
 }
 
 function solveVel(c){
@@ -1063,6 +1101,15 @@ function step(t){
     held.vy = (ny0 - held.y) / dt;
     held.va = 0;
     held.x = nx0; held.y = ny0;
+    if(held.tumbles){
+      // carried: the tumble dies and the toy eases around to face the
+      // viewer — the same pose and rate the old presentation tilt used
+      const kk = 1 - Math.exp(-dt * 6.5);
+      held.wx = 0; held.wy = 0;
+      held.rx += dAng(R1_HELD_RX - held.rx) * kk;
+      held.ry += dAng(R1_HELD_RY - held.ry) * kk;
+      held.poseCalm = false;               // it re-settles after release
+    }
   }
 
   // gravity + drag on everything awake
@@ -1103,6 +1150,10 @@ function step(t){
     }
     if(allHome) seatAll();       // letters return to text; toys carry on below
   }
+
+  // the 3D r1's collider width tracks its yaw — face-on the full octagon,
+  // edge-on a thin slab (a fattening hull pushes, never teleports)
+  for(const b of bodies) if(b.tumbles) r1TrackWidth(b);
 
   // broadphase + narrowphase
   nContacts = 0;
@@ -1145,6 +1196,7 @@ function step(t){
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.a += b.va * dt;
+    if(b.tumbles) tumbleStep(b, dt);       // the r1's depth-tumble rides along
     if(b.entering && b.y > b.rad + 6) b.entering = false;  // fully inside now
   }
 
@@ -1161,6 +1213,10 @@ function step(t){
         b.x = W / 2; b.y = H - b.rad - 2;
       }
       b.vx = b.vy = b.a = b.va = 0;
+    }
+    if(b.tumbles && !isFinite(b.rx + b.ry + b.wx + b.wy)){
+      b.rx = b.ry = b.wx = b.wy = 0;      // level the pose; the hull re-fattens next track
+      b.poseCalm = true;
     }
     if(b.sim && b !== held){
       if(b.x < 2) b.x = 2;
@@ -1186,7 +1242,8 @@ function step(t){
     const nearAnchor = Math.abs(b.x - b.sx) < SLEEP_DX &&
                        Math.abs(b.y - b.sy) < SLEEP_DX &&
                        Math.abs(b.a - b.sa) < SLEEP_DA;
-    if((slowV || nearAnchor) && !b.entering){
+    // (the r1 also may not sleep while its pose spring is still rocking)
+    if((slowV || nearAnchor) && !b.entering && (!b.tumbles || b.poseCalm)){
       // resting bodies still show spiky per-frame speeds (the solver's
       // heartbeat), so "hasn't actually gone anywhere" also counts as still
       b.still += dt;
@@ -1209,7 +1266,7 @@ function step(t){
   if(justSnapped) render(t);
 
   const busy = held || mode === "homing" || anyAwake || anyWaiting ||
-               (r1busy && r1busy());   // the r1's tilt may still be easing
+               (r1busy && r1busy());   // the r1's pose may still be settling
   if(busy) raf = requestAnimationFrame(step);
 }
 
@@ -1258,7 +1315,109 @@ function toyBody(el, w, h, cut){
     r = Math.max(r, Math.hypot(oct[i].x, oct[i].y));
   }
   b.rad = r;
+  b.toyW = w; b.toyH = h; b.toyCut = cut;   // the depth-aware hull re-cuts from these
+  b.hullW = w;
   return b;
+}
+
+/* ---- the r1's depth tumble ------------------------------------------
+   Real angular state in depth: pitch rx and yaw ry (rad) with angular
+   velocities wx, wy — while the solver's in-plane angle b.a stays
+   untouched. Flings and impacts kick it, air and ground drag calm it,
+   and once the body is down and slow a lightly under-damped spring
+   rocks it onto the nearest stable pose: face (0), back (±PI), or
+   standing edge-on like a coin (±PI/2). The collision hull narrows to
+   match the silhouette as it turns. Only the WebGL r1 sets b.tumbles —
+   the flat CSS fallback has no depth to tumble through. */
+function dAng(d){          // wrap any angle difference into [-PI, PI)
+  d = (d + Math.PI) % (2 * Math.PI);
+  if(d < 0) d += 2 * Math.PI;
+  return d - Math.PI;
+}
+function rspin(){ return Math.random() < .5 ? -1 : 1; }
+function clampW(v){ return Math.max(-R1_W_MAX, Math.min(R1_W_MAX, v)); }
+
+/* an impact converts approach speed into tumble; the contact normal
+   picks the axis mix (floors mostly pitch, walls mostly yaw), a little
+   randomness keeps repeats from looking mechanical, and part of the
+   old spin is scrubbed the way a real hit would. Rate-limited so a
+   two-point landing kicks once, not twice. */
+function kickTumble(b, speed, nx, ny){
+  const now = performance.now();
+  if(now - b.lastKick < 70) return;
+  b.lastKick = now;
+  b.poseCalm = false;
+  const k = Math.min(R1_W_MAX, speed * R1_KICK_HIT);
+  b.wx = clampW(b.wx * .6 + rspin() * k * (.25 + .75 * Math.abs(ny)) * (.6 + Math.random() * .4));
+  b.wy = clampW(b.wy * .6 + rspin() * k * (.25 + .75 * Math.abs(nx)) * (.6 + Math.random() * .4));
+}
+
+/* nearest stable pose — but edge-on only when the tumble genuinely stops
+   near ±90°: a slab rarely balances on its edge, so the coin stance stays rare */
+function stableY(ry){
+  const HPI = Math.PI / 2;
+  const near = Math.round(ry / HPI) * HPI;
+  if((Math.round(near / HPI) & 1) === 0) return near;            // face/back
+  if(Math.abs(dAng(ry - near)) <= R1_EDGE_ZONE) return near;     // earned the edge
+  return Math.round(ry / Math.PI) * Math.PI;                     // fall to face/back
+}
+
+/* integrate the tumble each awake frame (the held case lives in step) */
+function tumbleStep(b, dt){
+  const slow = b.touch && Math.hypot(b.vx, b.vy) < 50;  // the settle block's stillness signal
+  const tgtY = stableY(b.ry) +                            // ry stays wrapped,
+    Math.max(-R1_SWAY, Math.min(R1_SWAY, devGamma * .5)); // so multi-turn tumble never unwinds
+  if(b.poseCalm){
+    // settled — only a moved sway target (the device rolling) re-arms it
+    if(slow && Math.abs(dAng(tgtY - b.ry)) > .02) b.poseCalm = false;
+    else return;
+  }
+  if(slow){
+    const ex = dAng(-b.rx), ey = dAng(tgtY - b.ry);
+    b.wx += (R1_SET_K * ex - R1_SET_D * b.wx) * dt;
+    b.wy += (R1_SET_K * ey - R1_SET_D * b.wy) * dt;
+    if(Math.abs(ex) < .01 && Math.abs(ey) < .01 &&
+       Math.abs(b.wx) < .05 && Math.abs(b.wy) < .05){
+      b.rx = 0; b.ry = dAng(tgtY); b.wx = 0; b.wy = 0;
+      b.poseCalm = true;                 // sleep may proceed; rAF may stop
+      return;
+    }
+  } else {
+    const dk = Math.exp(-(b.touch ? R1_DAMP_GND : R1_DAMP_AIR) * dt);
+    b.wx *= dk; b.wy *= dk;
+  }
+  b.rx = dAng(b.rx + b.wx * dt);
+  b.ry = dAng(b.ry + b.wy * dt);
+}
+
+/* re-cut the octagon at a new effective width. Verts only — mass and
+   inertia stay the face-on values. Fattening back up must shove
+   neighbours through the solver, so sleepers within reach are woken
+   rather than teleported through. */
+function r1SetWidth(b, w){
+  b.hullW = w;
+  const w2 = w / 2, h2 = b.toyH / 2;
+  const cx = Math.min(b.toyCut, w2 * .6);   // corners shrink so the slab stays convex
+  const cy = b.toyCut;
+  const v = b.lv;
+  v[0].x = -w2 + cx; v[0].y = -h2;
+  v[1].x =  w2 - cx; v[1].y = -h2;
+  v[2].x =  w2;      v[2].y = -h2 + cy;
+  v[3].x =  w2;      v[3].y =  h2 - cy;
+  v[4].x =  w2 - cx; v[4].y =  h2;
+  v[5].x = -w2 + cx; v[5].y =  h2;
+  v[6].x = -w2;      v[6].y =  h2 - cy;
+  v[7].x = -w2;      v[7].y = -h2 + cy;
+  for(const o of bodies){
+    if(o === b || !o.sleeping) continue;
+    if(Math.hypot(o.x - b.x, o.y - b.y) < o.rad + b.rad + 6) wake(o);
+  }
+}
+function r1TrackWidth(b){
+  const thick = b.toyH * R1_THICK;          // never thinner than the toy is deep
+  const eff = Math.max(thick,
+    thick + (b.toyW - thick) * Math.abs(Math.cos(b.ry)));
+  if(Math.abs(eff - b.hullW) > R1_HULL_DW) r1SetWidth(b, eff);
 }
 
 function capHeightPx(F){
@@ -1294,16 +1453,21 @@ function makeRabbit(side){
    The 3D r1 — the baked mesh from r1-mesh.js drawn by a tiny
    hand-rolled WebGL1 renderer: one program, baseColor texture,
    two-light lambert, and a soft rim so the black screen face still
-   reads. The physics body is untouched — this canvas is just the
-   sprite, CSS-positioned and CSS-rotated by the body angle exactly
-   like the flat toy it replaces. The shader adds presentation-only
-   depth (a velocity lean, a face-the-viewer tilt while held, a
-   whisper of device sway), and a second matrix folds the body angle
-   back into the normals so the lights stay fixed on the page while
-   the model tumbles. Missing mesh, no WebGL, or any failure at all:
-   return null and the flat CSS rabbit above ships instead.
+   reads. The solver's in-plane angle is untouched — this canvas is
+   CSS-positioned and CSS-rotated by the body angle exactly like the
+   flat toy it replaces. Depth, though, is real state now: the body
+   carries pitch/yaw (b.rx, b.ry) with angular velocity, kicked by
+   flings and impacts, springing onto a stable rest pose — face,
+   back, or standing edge-on like a coin — once it is down, while
+   the collision hull narrows to match (all of that lives up in the
+   physics section; this painter just draws whatever pose the body
+   holds). A second matrix folds the body angle back into the
+   normals so the lights stay fixed on the page while the model
+   tumbles. Missing mesh, no WebGL, or any failure at all: return
+   null and the flat CSS rabbit above ships instead — it has no
+   depth, so it never tumbles and keeps the face-on hull.
    ================================================================ */
-let r1busy = null;         // step() asks this whether the tilt is still easing
+let r1busy = null;         // step() asks this whether the r1's pose has settled
 
 function makeRabbitGL(side){
   const MSH = window.R1_MESH;
@@ -1367,11 +1531,10 @@ function makeRabbitGL(side){
   gl.enable(gl.DEPTH_TEST);
   gl.clearColor(0, 0, 0, 0);
 
-  /* presentation state — none of this ever touches the physics */
+  /* painter state — the tumble itself lives on the body (b.rx, b.ry) */
   const mM = new Float32Array(9), mL = new Float32Array(9);
-  let tx = 0, ty = 0;                 // current lean, rad
-  let easing = true, dirty = true, dead = false;
-  let dpr0 = 0, lastA = 1e9, lastTx = 1e9, lastTy = 1e9, lastDrawT = 0;
+  let dirty = true, dead = false;
+  let dpr0 = 0, lastA = 1e9, lastRx = 1e9, lastRy = 1e9;
 
   // shell-orange 1px stand-in until the embedded JPEG decodes (ms)
   const tex = gl.createTexture();
@@ -1389,9 +1552,18 @@ function makeRabbitGL(side){
 
   el.addEventListener("webglcontextlost", e => {
     e.preventDefault();
-    dead = true;                      // degrade to the flat look; physics never notices
+    dead = true;                      // degrade to the flat look
     el.style.background = "#ff4d06";
     el.style.borderRadius = Math.round(side * .16) + "px";
+    const bb = bodyByEl.get(el);      // a flat square has no depth: level the
+    if(bb){                           // pose and restore the face-on hull
+      bb.tumbles = false;
+      bb.rx = bb.ry = bb.wx = bb.wy = 0;
+      bb.poseCalm = true;
+      if(Math.abs(bb.hullW - bb.toyW) > .5) r1SetWidth(bb, bb.toyW);
+      wake(bb);
+      start();
+    }
   });
 
   function m3yx(ry, rx, s, out){      // column-major s · RotY(ry) · RotX(rx)
@@ -1409,30 +1581,11 @@ function makeRabbitGL(side){
       m[j + 1] = s * x + c * y;
     }
   }
-  const lean = (v, lim) => Math.max(-lim, Math.min(lim, v));
-
   function draw3d(t, b){
-    if(dead){ easing = false; return; }
-    const dt = Math.min(Math.max((t - lastDrawT) / 1000, 0), .1);
-    lastDrawT = t;
-    // where this moment wants the toy to lean
-    let wantY, wantX;
-    if(held === b){                   // picked up: face the viewer a little
-      wantY = .2; wantX = .12;
-    } else {
-      wantY = lean(b.vx * .0006, .35) + lean(devGamma * .5, .15);
-      wantX = lean(-b.vy * .0006, .35);
-    }
-    const k = 1 - Math.exp(-dt * 6.5);
-    tx += (wantX - tx) * k;
-    ty += (wantY - ty) * k;
-    if(Math.abs(wantX - tx) < .004 && Math.abs(wantY - ty) < .004){
-      tx = wantX; ty = wantY;         // settled — this draw is the final one
-      easing = false;
-    } else easing = true;
+    if(dead) return;
     // repaint only when what the canvas shows would actually change
     const dpr = Math.min(devicePixelRatio || 1, 2);
-    if(!dirty && dpr === dpr0 && b.a === lastA && tx === lastTx && ty === lastTy)
+    if(!dirty && dpr === dpr0 && b.a === lastA && b.rx === lastRx && b.ry === lastRy)
       return;
     if(dpr !== dpr0){
       dpr0 = dpr;
@@ -1445,20 +1598,20 @@ function makeRabbitGL(side){
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
       texImg = null;
     }
-    m3yx(ty, tx, .985, mM);           // positions: tilt only — CSS spins the box
-    m3yx(ty, tx, 1, mL);
+    m3yx(b.ry, b.rx, .985, mM);       // positions: the tumble — CSS spins the box
+    m3yx(b.ry, b.rx, 1, mL);
     m3z(-b.a, mL);                    // normals: lights stay fixed on the page
     gl.uniformMatrix3fv(uM, false, mM);
     gl.uniformMatrix3fv(uL, false, mL);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.drawElements(gl.TRIANGLES, nIdx, gl.UNSIGNED_SHORT, 0);
-    lastA = b.a; lastTx = tx; lastTy = ty;
+    lastA = b.a; lastRx = b.rx; lastRy = b.ry;
     dirty = false;
   }
 
   const rr = Math.round(side * .16);
   return { el, w:side, h:side, cut:rr * .75, draw3d,
-           busy:() => easing && !dead };
+           busy:bb => !dead && !bb.poseCalm };
 }
 
 function makePhone(hgt){
@@ -1489,7 +1642,14 @@ function spawnToy(which){
   const spec = which === "r1" ? (makeRabbitGL(side) || makeRabbit(side))
                               : makePhone(Math.round(cap * 1.5));
   const b = toyBody(spec.el, spec.w, spec.h, spec.cut);
-  if(spec.draw3d){ b.draw3d = spec.draw3d; r1busy = spec.busy; }
+  if(spec.draw3d){
+    b.draw3d = spec.draw3d;
+    r1busy = () => spec.busy(b);
+    b.tumbles = true;                      // the 3D r1 carries real depth —
+    b.wx = (Math.random() - .5) * 2;       // it arrives gently mid-tumble and
+    b.wy = (Math.random() - .5) * 3;       // the landing kick does the rest
+    b.poseCalm = false;
+  }
   b.ch = which;
   b.x = innerWidth * (which === "r1" ? .3 : .7);
   b.y = -150;
