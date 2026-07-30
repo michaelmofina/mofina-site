@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Michael Mofina — Product Designer</title>
+<meta name="description" content="Michael Mofina — product designer at Todoist. Voice capture, automations, and cross-platform design. Toronto.">
+<meta name="theme-color" content="#fdfdfb">
+<style>
+/* ============================================================
+   michael mofina — "spill" variant
+   The name appears mid-page, holds just long enough to be read,
+   then every letter falls. Each one can be picked up and thrown.
+   Escape or double-click puts the name back together.
+   ============================================================ */
+
+@font-face{
+  font-family:"General Sans";
+  src:url("../assets/fonts/GeneralSans-Regular.woff2") format("woff2");
+  font-weight:400;
+  font-style:normal;
+  font-display:swap;
+}
+
+:root{
+  --paper:#fdfdfb;
+  --ink:22,22,22;
+  --accent:#e44332;
+}
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+
+html{ background:var(--paper); }
+
+body{
+  font-family:"General Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-weight:400;
+  font-size:.95rem;
+  line-height:1.6;
+  color:rgba(var(--ink),.85);
+  overflow-x:clip;
+}
+
+::selection{ background:var(--accent); color:var(--paper); }
+
+a{ color:inherit; }
+a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; border-radius:2px; }
+
+.fade{
+  animation:fadeUp .55s cubic-bezier(.22,.61,.36,1) both;
+  animation-delay:var(--d,0ms);
+}
+@keyframes fadeUp{
+  from{ opacity:0; transform:translateY(10px); }
+  to{ opacity:1; transform:none; }
+}
+
+/* ---- hero ---- */
+.hero{
+  position:relative;
+  height:100svh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:clip;
+}
+.corner{
+  position:absolute;
+  top:1.75rem; left:1.5rem; right:1.5rem;
+  display:flex;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:.2rem 1.5rem;
+  z-index:3;
+}
+.corner .role{ color:rgba(var(--ink),.6); }
+.corner .at a{ color:var(--accent); text-decoration:none; }
+.corner .at a:hover{ text-decoration:underline; text-underline-offset:.18em; }
+
+/* the name — one line, sized to fit with a little bleed-proofing */
+.big{
+  font-weight:400;
+  font-size:min(11vw,16vh);
+  line-height:1;
+  letter-spacing:-.03em;
+  color:rgba(var(--ink),.87);
+  white-space:nowrap;
+  user-select:none;
+  -webkit-user-select:none;
+}
+.big .word + .word{ margin-left:.38em; }
+
+.letter{
+  display:inline-block;
+  will-change:transform;
+}
+/* once physics owns a letter it becomes a fixed-position sprite */
+.letter.live{
+  position:fixed;
+  left:0; top:0;
+  z-index:9;
+  cursor:grab;
+  touch-action:none;
+}
+.letter.live.held{ cursor:grabbing; color:var(--accent); }
+body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
+
+/* invisible mirror of the name: always lays out naturally, so home
+   seats stay correct at any viewport size */
+.ghost{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  visibility:hidden;
+  pointer-events:none;
+}
+
+.sr-only{
+  position:absolute; width:1px; height:1px; margin:-1px; padding:0;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
+
+/* ---- below the fold: the quiet index ---- */
+.page{ max-width:46rem; margin:0 auto; padding:5rem 1.5rem 3rem; }
+.lede{
+  font-size:clamp(1.6rem,3.6vw,2.5rem);
+  line-height:1.2;
+  letter-spacing:-.02em;
+}
+.lede a{ color:var(--accent); text-decoration:none; transition:color .25s ease; }
+.lede a:hover{
+  text-decoration:underline;
+  text-decoration-thickness:.045em;
+  text-underline-offset:.12em;
+}
+hr{ border:0; border-top:1px solid rgba(var(--ink),.12); margin:2.75rem 0; }
+.group{
+  display:grid;
+  grid-template-columns:10rem 1fr;
+  gap:.3rem 2rem;
+  align-items:baseline;
+}
+.group + .group{ margin-top:1.6rem; }
+.org{ font-size:.95rem; font-weight:400; margin:0; color:rgba(var(--ink),.85); }
+.row{ display:flex; align-items:baseline; gap:.75rem; transition:opacity .22s ease, color .22s ease; }
+.row + .row{ margin-top:.3rem; }
+.year{
+  margin-left:auto;
+  font-variant-numeric:tabular-nums;
+  color:rgba(var(--ink),.4);
+  white-space:nowrap;
+}
+.joke{ font-size:.8rem; color:rgba(var(--ink),.6); opacity:0; transition:opacity .3s ease .05s; }
+@media (hover:hover){
+  .index:hover .row{ opacity:.4; }
+  .index:hover .row:hover{ opacity:1; color:var(--tint,rgba(var(--ink),.85)); }
+  .index:hover .joke-row{ opacity:1; }
+  .group:hover .joke{ opacity:1; }
+}
+.dock{ display:flex; gap:2rem; margin-top:3.5rem; }
+.dock a{
+  color:rgba(var(--ink),.6);
+  text-decoration:underline;
+  text-decoration-color:rgba(var(--ink),.18);
+  text-underline-offset:.22em;
+  transition:color .2s ease, text-decoration-color .2s ease;
+}
+.dock a:hover{ color:var(--accent); text-decoration-color:var(--accent); }
+.fin{ margin-top:3.5rem; font-size:.8rem; color:rgba(var(--ink),.35); }
+
+@media (max-width:640px){
+  .group{ grid-template-columns:1fr; gap:.35rem 0; }
+  .org{ margin-bottom:.15rem; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation:none !important; transition:none !important; }
+  .fade{ opacity:1; transform:none; }
+}
+</style>
+</head>
+<body>
+
+<section class="hero">
+  <div class="corner fade" style="--d:0ms">
+    <p class="role">Product Designer · Toronto</p>
+    <p class="at">Currently at <a href="https://todoist.com">Todoist</a>.</p>
+  </div>
+
+  <h1 class="big fade" id="name" style="--d:80ms">
+    <span class="sr-only">michael mofina</span><span aria-hidden="true" id="visname"><span class="word">michael</span><span class="word">mofina</span></span>
+  </h1>
+
+  <!-- invisible twin used only to know where the letters' seats are -->
+  <div class="ghost" aria-hidden="true"><p class="big" id="ghostname"></p></div>
+</section>
+
+<main class="page">
+
+  <p class="lede">Voice capture, automations, and cross-platform design at <a href="https://todoist.com">Todoist</a>.</p>
+
+  <hr>
+
+  <div class="index">
+
+    <section class="group" style="--tint:#e44332">
+      <h2 class="org">Todoist</h2>
+      <div>
+        <div class="row"><span>Ramble — voice capture</span><span class="year">2025–26</span></div>
+        <div class="row"><span>Automations platform</span><span class="year">2025–26</span></div>
+        <div class="row"><span>Cross-platform design</span><span class="year">2026</span></div>
+        <div class="row"><span>Shipped web PRs</span><span class="year">2026</span></div>
+      </div>
+    </section>
+
+    <section class="group" style="--tint:#ff4d06">
+      <h2 class="org">rabbit</h2>
+      <div>
+        <div class="row"><span>r1 — from wheel to touch</span><span class="year">2024</span></div>
+        <div class="row"><span>teach mode</span><span class="year">2024</span></div>
+        <div class="row"><span>LAM playground</span><span class="year">2025</span></div>
+      </div>
+    </section>
+
+    <section class="group" style="--tint:#6e6e73">
+      <h2 class="org">Apple via Critical Mass</h2>
+      <div>
+        <div class="row"><span>Marcom design</span><span class="year">2021–24</span></div>
+        <div class="row joke-row" aria-hidden="true"><span class="joke">Really good designs. Trust me.</span></div>
+      </div>
+    </section>
+
+    <section class="group" style="--tint:#197a7a">
+      <h2 class="org">Independent</h2>
+      <div>
+        <div class="row"><span>EmergConnect — healthcare</span><span class="year">2021–</span></div>
+        <div class="row"><span>Projected interfaces</span><span class="year">2023</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <nav class="dock" aria-label="Contact">
+    <a href="mailto:info@michaelmofina.com">Email</a>
+    <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
+  </nav>
+
+  <footer>
+    <p class="fin">fin.</p>
+  </footer>
+
+</main>
+
+<script>
+(() => {
+"use strict";
+
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Filled transform animations create containing blocks for position:fixed;
+// clear each entrance animation once it has played.
+document.querySelectorAll(".fade").forEach(el => {
+  el.addEventListener("animationend", () => { el.style.animation = "none"; }, { once:true });
+});
+
+/* ---- split the words into letter spans (visible + ghost twin) ---- */
+const visname = document.getElementById("visname");
+const ghostP  = document.getElementById("ghostname");
+visname.querySelectorAll(".word").forEach(w => {
+  w.innerHTML = w.textContent.split("")
+    .map(ch => '<span class="letter">' + ch + "</span>").join("");
+});
+ghostP.innerHTML = visname.innerHTML;   // identical structure, invisible
+const letters = [...visname.querySelectorAll(".letter")];
+const seats   = [...ghostP.querySelectorAll(".letter")];
+
+if(reduced) return;   // the name simply stays a name
+
+/* ================================================================
+   Physics — 13 tumbling rigid letters with circle colliders.
+   ================================================================ */
+const G = 2000;         // gravity px/s²
+const REST = .55;       // letters thud rather than bounce
+const MAXV = 3400;
+const FLOOR_F = 2.6;    // ground friction (exp decay rate)
+
+let mode = "seated";    // seated | live | homing
+let raf = 0, lastT = 0, stillFrames = 0;
+let held = null, pointerId = null;
+let interacted = false;
+const target = { x:0, y:0 };
+const samples = [];
+
+const bodies = letters.map((el, i) => ({
+  el, i,
+  x:0, y:0, vx:0, vy:0,
+  a:0, va:0,             // angle (rad) + angular velocity
+  r:20, halfW:14, halfH:22,
+  homeDelay:0, homed:true,
+  dropAt:0,
+}));
+
+function seatRect(i){ return seats[i].getBoundingClientRect(); }
+
+/* ---- audio: lazy, gesture-gated, synthesized, quiet ---- */
+let AC = null, lastPlink = 0;
+function ensureAudio(){
+  try{
+    if(!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if(AC.state === "suspended") AC.resume();
+  }catch(e){ AC = null; }
+}
+function tone(freq, glide, dur, gain, at){
+  if(!AC) return;
+  const t0 = AC.currentTime + (at || 0);
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(freq, t0);
+  o.frequency.exponentialRampToValueAtTime(Math.max(40, glide || freq), t0 + dur);
+  g.gain.setValueAtTime(.0001, t0);
+  g.gain.exponentialRampToValueAtTime(gain, t0 + .008);
+  g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(t0); o.stop(t0 + dur + .03);
+}
+function plink(b, speed){
+  const now = performance.now();
+  if(now - lastPlink < 60) return;
+  lastPlink = now;
+  const s = Math.min(speed, 2000);
+  const base = Math.max(120, 420 - b.r * 4);   // small letters ring higher
+  tone(base + s * .06, base * .7, .08, Math.min(.09, .02 + (s / 2000) * .07));
+}
+
+/* ---- go live: letters leave the text flow and take physics state ---- */
+function goLive(){
+  if(mode !== "seated") return;
+  const name = document.getElementById("name");
+  name.style.height = name.getBoundingClientRect().height + "px"; // keep hero layout
+  const now = performance.now();
+  bodies.forEach(b => {
+    const r = b.el.getBoundingClientRect();
+    b.x = r.left + r.width / 2;
+    b.y = r.top + r.height / 2;
+    b.halfW = Math.max(8, r.width / 2);
+    b.halfH = Math.max(10, r.height / 2);
+    b.r = Math.max(b.halfW, b.halfH * .82);
+    b.vx = (Math.random() - .5) * 60;    // a whisper of sideways drift
+    b.vy = 0;
+    b.a = 0;
+    b.va = (Math.random() - .5) * 2.4;
+    b.homed = false;
+    b.dropAt = now + b.i * 26 + Math.random() * 90;  // ragged, not synchronized
+  });
+  letters.forEach(b => b.classList.add("live"));
+  bodies.forEach(b => document.body.appendChild(b.el)); // escape any containing block
+  mode = "live";
+  render(now);   // position synchronously — no one-frame flash at the origin
+  start();
+}
+
+/* the fall begins once the name has had a moment to be read */
+let fallTimer = setTimeout(goLive, 1400);
+
+/* ---- grab / drag / fling ---- */
+function pushSample(e){
+  const t = performance.now();
+  samples.push({ x:e.clientX, y:e.clientY, t });
+  while(samples.length && t - samples[0].t > 110) samples.shift();
+}
+function onDown(e){
+  if(mode === "homing") return;
+  let el = e.target.closest ? e.target.closest(".letter.live") : null;
+  if(!el && mode === "seated" && e.target.closest && e.target.closest("#visname .letter")){
+    el = e.target.closest("#visname .letter");   // grabbing the seated name spills it
+    clearTimeout(fallTimer);
+    goLive();
+  }
+  if(!el) return;
+  interacted = true;
+  ensureAudio();
+  held = bodies[letters.indexOf(el)];
+  held.el.classList.add("held");
+  pointerId = e.pointerId;
+  samples.length = 0;
+  pushSample(e);
+  target.x = e.clientX; target.y = e.clientY;
+  document.body.classList.add("grabbing");
+  addEventListener("pointermove", onMove);
+  addEventListener("pointerup", onUp);
+  addEventListener("pointercancel", onUp);
+  e.preventDefault();
+  start();
+}
+function onMove(e){
+  if(e.pointerId !== pointerId) return;
+  target.x = e.clientX; target.y = e.clientY;
+  pushSample(e);
+}
+function onUp(e){
+  if(e.pointerId !== pointerId) return;
+  removeEventListener("pointermove", onMove);
+  removeEventListener("pointerup", onUp);
+  removeEventListener("pointercancel", onUp);
+  document.body.classList.remove("grabbing");
+  pointerId = null;
+  if(held){
+    const a = samples[0], b = samples[samples.length - 1];
+    if(a && b && b.t - a.t > 15){
+      const dt = (b.t - a.t) / 1000;
+      held.vx = (b.x - a.x) / dt;
+      held.vy = (b.y - a.y) / dt;
+      const sp = Math.hypot(held.vx, held.vy);
+      if(sp > MAXV){ held.vx *= MAXV / sp; held.vy *= MAXV / sp; }
+      held.va = held.vx * .004 * (Math.random() < .5 ? -1 : 1);
+    }
+    held.el.classList.remove("held");
+    held = null;
+  }
+  start();
+}
+addEventListener("pointerdown", onDown);
+
+/* ---- home: the name puts itself back together ---- */
+function goHome(){
+  if(mode === "seated" || mode === "homing") return;
+  clearTimeout(fallTimer);
+  if(held){ held.el.classList.remove("held"); held = null; }
+  if(pointerId !== null){
+    removeEventListener("pointermove", onMove);
+    removeEventListener("pointerup", onUp);
+    removeEventListener("pointercancel", onUp);
+    document.body.classList.remove("grabbing");
+    pointerId = null;
+  }
+  const now = performance.now();
+  bodies.forEach((b, i) => { b.homeDelay = now + i * 35; b.homed = false; });
+  mode = "homing";
+  start();
+}
+function seatAll(){
+  mode = "seated";
+  bodies.forEach(b => {
+    b.el.classList.remove("live");
+    b.el.style.transform = "";
+  });
+  // letters go back into their word spans, in order
+  const words = visname.querySelectorAll(".word");
+  letters.forEach((el, i) => (i < 7 ? words[0] : words[1]).appendChild(el));
+  document.getElementById("name").style.height = "";
+}
+addEventListener("keydown", e => { if(e.key === "Escape") goHome(); });
+addEventListener("dblclick", goHome);
+
+/* ---- the loop ---- */
+function start(){
+  if(!raf){ lastT = performance.now(); raf = requestAnimationFrame(step); }
+}
+function step(t){
+  raf = 0;
+  const dt = Math.min((t - lastT) / 1000, 1 / 30);
+  lastT = t;
+  const w = innerWidth, h = innerHeight;
+
+  if(mode === "live"){
+    for(const b of bodies){
+      if(b === held){
+        const k = 1 - Math.exp(-dt * 30);
+        b.x += (target.x - b.x) * k;
+        b.y += (target.y - b.y) * k;
+        b.vx = b.vy = 0;
+        continue;
+      }
+      if(t < b.dropAt) continue;         // still waiting its turn to fall
+      b.vy += G * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.a += b.va * dt;
+
+      if(b.x < b.r && b.vx < 0)          { b.x = b.r;     plink(b, -b.vx); b.vx = -b.vx * REST; b.va = -b.va * .6; }
+      else if(b.x > w - b.r && b.vx > 0) { b.x = w - b.r; plink(b,  b.vx); b.vx = -b.vx * REST; b.va = -b.va * .6; }
+      if(b.y < b.r && b.vy < 0)          { b.y = b.r;     plink(b, -b.vy); b.vy = -b.vy * REST; }
+      else if(b.y > h - b.r && b.vy > 0){
+        b.y = h - b.r;
+        if(b.vy > 90) plink(b, b.vy);
+        b.vy = -b.vy * REST;
+        if(-b.vy < 55) b.vy = 0;
+        b.va = b.va * .5 + b.vx * .006;  // landing converts slide into tumble
+      }
+      if(b.y >= h - b.r - .5 && b.vy === 0){
+        b.vx *= Math.exp(-FLOOR_F * dt);
+        b.va *= Math.exp(-3 * dt);
+        if(Math.abs(b.vx) < 5) b.vx = 0;
+        if(Math.abs(b.va) < .05) b.va = 0;
+      }
+    }
+
+    /* letter-letter collisions: two relaxation passes of equal-mass circles */
+    for(let pass = 0; pass < 2; pass++){
+      for(let i = 0; i < bodies.length; i++){
+        const A = bodies[i];
+        if(t < A.dropAt) continue;
+        for(let j = i + 1; j < bodies.length; j++){
+          const B = bodies[j];
+          if(t < B.dropAt) continue;
+          const dx = B.x - A.x, dy = B.y - A.y;
+          const min = (A.r + B.r) * .78;   // circles overlap a little: letters nest
+          const d2 = dx * dx + dy * dy;
+          if(d2 >= min * min || d2 === 0) continue;
+          const d = Math.sqrt(d2);
+          const nx = dx / d, ny = dy / d;
+          const push = (min - d) / 2;
+          const aHeld = A === held, bHeld = B === held;
+          if(!aHeld){ A.x -= nx * push * (bHeld ? 2 : 1); A.y -= ny * push * (bHeld ? 2 : 1); }
+          if(!bHeld){ B.x += nx * push * (aHeld ? 2 : 1); B.y += ny * push * (aHeld ? 2 : 1); }
+          const rel = (B.vx - A.vx) * nx + (B.vy - A.vy) * ny;
+          if(rel < 0 && pass === 0){
+            const imp = -rel * .5 * (1 + .3);
+            if(!aHeld){ A.vx -= imp * nx; A.vy -= imp * ny; A.va += (Math.random() - .5) * .8; }
+            if(!bHeld){ B.vx += imp * nx; B.vy += imp * ny; B.va += (Math.random() - .5) * .8; }
+            if(-rel > 260) plink(A, -rel);
+          }
+          if(!aHeld){ A.x = Math.min(Math.max(A.x, A.r), w - A.r); A.y = Math.min(A.y, h - A.r); }
+          if(!bHeld){ B.x = Math.min(Math.max(B.x, B.r), w - B.r); B.y = Math.min(B.y, h - B.r); }
+        }
+      }
+    }
+  }
+  else if(mode === "homing"){
+    let allHome = true;
+    for(const b of bodies){
+      if(b.homed) continue;
+      if(t < b.homeDelay){ allHome = false; continue; }
+      const s = seatRect(b.i);
+      const hx = s.left + s.width / 2, hy = s.top + s.height / 2;
+      const K = 170, D = 20;
+      b.vx += (-K * (b.x - hx) - D * b.vx) * dt;
+      b.vy += (-K * (b.y - hy) - D * b.vy) * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.a += (0 - b.a) * Math.min(1, dt * 9);   // untwist on the way home
+      if(Math.hypot(b.x - hx, b.y - hy) < 1 && Math.hypot(b.vx, b.vy) < 30
+         && Math.abs(b.a) < .02){
+        b.x = hx; b.y = hy; b.vx = b.vy = 0; b.a = 0; b.va = 0; b.homed = true;
+      } else allHome = false;
+    }
+    if(allHome){ seatAll(); return; }
+  }
+
+  /* nothing may ever be lost */
+  for(const b of bodies){
+    if(!isFinite(b.x + b.y + b.vx + b.vy + b.a + b.va)){
+      const s = seatRect(b.i);
+      b.x = s.left + s.width / 2; b.y = s.top + s.height / 2;
+      b.vx = b.vy = b.a = b.va = 0;
+    }
+  }
+
+  render(t);
+
+  /* sleep only after everything has been genuinely quiet for ~half a second,
+     so a throw's apex (speeds ≈ 0 for a frame) never freezes a letter mid-air */
+  const moving = bodies.some(b => t < b.dropAt ||
+    Math.abs(b.vx) + Math.abs(b.vy) + Math.abs(b.va * 60) > 6);
+  stillFrames = moving ? 0 : stillFrames + 1;
+  const busy = held || mode === "homing" || stillFrames < 30;
+  if(mode !== "seated" && busy) raf = requestAnimationFrame(step);
+}
+
+function render(t){
+  for(const b of bodies){
+    if(mode === "live" && t < b.dropAt && b !== held) {
+      // waiting letters hold their seat, pixel-perfect
+      b.el.style.transform = "translate3d(" + (b.x - b.halfW).toFixed(2) + "px," +
+                             (b.y - b.halfH).toFixed(2) + "px,0)";
+      continue;
+    }
+    b.el.style.transform = "translate3d(" + (b.x - b.halfW).toFixed(2) + "px," +
+                           (b.y - b.halfH).toFixed(2) + "px,0) rotate(" + b.a.toFixed(3) + "rad)";
+  }
+}
+
+/* ---- resize: seats move; grounded letters stay grounded ---- */
+addEventListener("resize", () => {
+  if(mode === "seated") return;
+  for(const b of bodies){
+    b.x = Math.min(Math.max(b.x, b.r), innerWidth - b.r);
+    b.y = Math.min(b.y, innerHeight - b.r);
+  }
+  start();
+});
+
+})();
+</script>
+
+</body>
+</html>
