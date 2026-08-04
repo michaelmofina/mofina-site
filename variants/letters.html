@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Michael Mofina — Product Designer</title>
-<meta name="description" content="Michael Mofina — product designer at Todoist. Voice capture, automations, and cross-platform design. Toronto.">
+<meta name="description" content="Michael Mofina — product designer at Todoist.">
 <meta name="theme-color" content="#fdfdfb">
 <style>
 /* ============================================================
@@ -13,14 +13,14 @@
    then every letter falls. Each one is a rigid body whose collider
    is traced from its own glyph outline, so letters land on their
    ink, tip over their stems, and stack like real objects. A rabbit
-   r1 and an iPhone drop in after the first spill and never leave.
-   Escape or double-click puts the name back together.
+   r1 drops in after the first spill and never leaves. One viewport,
+   no scroll. Escape or double-click puts the name back together.
    ============================================================ */
 
 @font-face{
-  font-family:"General Sans";
-  src:url("../assets/fonts/GeneralSans-Regular.woff2") format("woff2");
-  font-weight:400;
+  font-family:"Cabinet Grotesk";
+  src:url("../assets/fonts/CabinetGrotesk-Medium.woff2") format("woff2");
+  font-weight:500;
   font-style:normal;
   font-display:swap;
 }
@@ -36,12 +36,14 @@
 html{ background:var(--paper); }
 
 body{
-  font-family:"General Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  font-weight:400;
+  font-family:"Cabinet Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-weight:500;
   font-size:.95rem;
   line-height:1.6;
   color:rgba(var(--ink),.85);
-  overflow-x:clip;
+  overflow:hidden;               /* one viewport — the page never scrolls */
+  overscroll-behavior:none;
+  height:100svh;
 }
 
 ::selection{ background:var(--accent); color:var(--paper); }
@@ -77,6 +79,11 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
   z-index:3;
 }
 .corner .role{ color:rgba(var(--ink),.6); }
+.corner .links{ margin-top:.15rem; font-size:.85rem; }
+.corner .links a{ color:rgba(var(--ink),.5); text-decoration:underline;
+  text-decoration-color:rgba(var(--ink),.18); text-underline-offset:.22em;
+  transition:color .2s ease, text-decoration-color .2s ease; }
+.corner .links a:hover{ color:var(--accent); text-decoration-color:var(--accent); }
 .corner .at a{ color:var(--accent); text-decoration:none; }
 .corner .at a:hover{ text-decoration:underline; text-underline-offset:.18em; }
 
@@ -146,58 +153,8 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
 }
 
-/* ---- below the fold: the quiet index ---- */
-.page{ max-width:46rem; margin:0 auto; padding:5rem 1.5rem 3rem; }
-.lede{
-  font-size:clamp(1.6rem,3.6vw,2.5rem);
-  line-height:1.2;
-  letter-spacing:-.02em;
-}
-.lede a{ color:var(--accent); text-decoration:none; transition:color .25s ease; }
-.lede a:hover{
-  text-decoration:underline;
-  text-decoration-thickness:.045em;
-  text-underline-offset:.12em;
-}
-hr{ border:0; border-top:1px solid rgba(var(--ink),.12); margin:2.75rem 0; }
-.group{
-  display:grid;
-  grid-template-columns:10rem 1fr;
-  gap:.3rem 2rem;
-  align-items:baseline;
-}
-.group + .group{ margin-top:1.6rem; }
-.org{ font-size:.95rem; font-weight:400; margin:0; color:rgba(var(--ink),.85); }
-.row{ display:flex; align-items:baseline; gap:.75rem; transition:opacity .22s ease, color .22s ease; }
-.row + .row{ margin-top:.3rem; }
-.year{
-  margin-left:auto;
-  font-variant-numeric:tabular-nums;
-  color:rgba(var(--ink),.4);
-  white-space:nowrap;
-}
-.joke{ font-size:.8rem; color:rgba(var(--ink),.6); opacity:0; transition:opacity .3s ease .05s; }
-@media (hover:hover){
-  .index:hover .row{ opacity:.4; }
-  .index:hover .row:hover{ opacity:1; color:var(--tint,rgba(var(--ink),.85)); }
-  .index:hover .joke-row{ opacity:1; }
-  .group:hover .joke{ opacity:1; }
-}
-.dock{ display:flex; gap:2rem; margin-top:3.5rem; }
-.dock a{
-  color:rgba(var(--ink),.6);
-  text-decoration:underline;
-  text-decoration-color:rgba(var(--ink),.18);
-  text-underline-offset:.22em;
-  transition:color .2s ease, text-decoration-color .2s ease;
-}
-.dock a:hover{ color:var(--accent); text-decoration-color:var(--accent); }
-.fin{ margin-top:3.5rem; font-size:.8rem; color:rgba(var(--ink),.35); }
-
-@media (max-width:640px){
-  .group{ grid-template-columns:1fr; gap:.35rem 0; }
-  .org{ margin-bottom:.15rem; }
-}
+.fin{ position:absolute; right:1.5rem; bottom:1.25rem; margin:0;
+  font-size:.8rem; color:rgba(var(--ink),.35); z-index:3; }
 
 @media (prefers-reduced-motion: reduce){
   *{ animation:none !important; transition:none !important; }
@@ -209,9 +166,16 @@ hr{ border:0; border-top:1px solid rgba(var(--ink),.12); margin:2.75rem 0; }
 
 <section class="hero">
   <div class="corner fade" style="--d:0ms">
-    <p class="role">Product Designer · Toronto</p>
+    <div>
+      <p class="role">Product Designer</p>
+      <p class="links">
+        <a href="mailto:info@michaelmofina.com">Email</a> ·
+        <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
+      </p>
+    </div>
     <p class="at">Currently at <a href="https://todoist.com">Todoist</a>.</p>
   </div>
+  <p class="fin" aria-hidden="true">fin.</p>
 
   <h1 class="big fade" id="name" style="--d:80ms">
     <span class="sr-only">michael mofina</span><span aria-hidden="true" id="visname"><span class="word">michael</span><span class="word">mofina</span></span>
@@ -220,62 +184,6 @@ hr{ border:0; border-top:1px solid rgba(var(--ink),.12); margin:2.75rem 0; }
   <!-- invisible twin used only to know where the letters' seats are -->
   <div class="ghost" aria-hidden="true"><p class="big" id="ghostname"></p></div>
 </section>
-
-<main class="page">
-
-  <p class="lede">Voice capture, automations, and cross-platform design at <a href="https://todoist.com">Todoist</a>.</p>
-
-  <hr>
-
-  <div class="index">
-
-    <section class="group" style="--tint:#e44332">
-      <h2 class="org">Todoist</h2>
-      <div>
-        <div class="row"><span>Ramble — voice capture</span><span class="year">2025–26</span></div>
-        <div class="row"><span>Automations platform</span><span class="year">2025–26</span></div>
-        <div class="row"><span>Cross-platform design</span><span class="year">2026</span></div>
-        <div class="row"><span>Shipped web PRs</span><span class="year">2026</span></div>
-      </div>
-    </section>
-
-    <section class="group" style="--tint:#ff4d06">
-      <h2 class="org">rabbit</h2>
-      <div>
-        <div class="row"><span>r1 — from wheel to touch</span><span class="year">2024</span></div>
-        <div class="row"><span>teach mode</span><span class="year">2024</span></div>
-        <div class="row"><span>LAM playground</span><span class="year">2025</span></div>
-      </div>
-    </section>
-
-    <section class="group" style="--tint:#6e6e73">
-      <h2 class="org">Apple via Critical Mass</h2>
-      <div>
-        <div class="row"><span>Marcom design</span><span class="year">2021–24</span></div>
-        <div class="row joke-row" aria-hidden="true"><span class="joke">Really good designs. Trust me.</span></div>
-      </div>
-    </section>
-
-    <section class="group" style="--tint:#197a7a">
-      <h2 class="org">Independent</h2>
-      <div>
-        <div class="row"><span>EmergConnect — healthcare</span><span class="year">2021–</span></div>
-        <div class="row"><span>Projected interfaces</span><span class="year">2023</span></div>
-      </div>
-    </section>
-
-  </div>
-
-  <nav class="dock" aria-label="Contact">
-    <a href="mailto:info@michaelmofina.com">Email</a>
-    <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
-  </nav>
-
-  <footer>
-    <p class="fin">fin.</p>
-  </footer>
-
-</main>
 
 <script src="r1-mesh.js"></script>
 <script>
@@ -343,12 +251,7 @@ const R1_KICK_FLING = .002;  // fling speed (px/s) → tumble (rad/s)
 const R1_KICK_HIT   = .0032; // impact speed (px/s) → tumble (rad/s)
 const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (SND_WALL's idea of a hit)
 const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays under ~1.5 turns
-const R1_SET_K      = 70;    // settle spring toward the nearest stable pose, 1/s²
-const R1_EDGE_ZONE  = .32;   // rad — how close to ±90° a tumble must stop to balance edge-on (rare = special)
-const R1_SET_D      = 6.5;   // settle spring damping — under-damped, one visible rock
-const R1_SWAY       = .15;   // max device-roll offset folded into the settled pose, rad
-const R1_HELD_RX    = .12;   // carried pose: the little face-the-viewer tilt (unchanged feel)
-const R1_HELD_RY    = .2;
+const R1_DAMP_SET   = 3.5;   // grounded spin die-off, 1/s — it lands where it lands
 const R1_HULL_DW    = 2;     // px of width change that justifies re-cutting the collider
 
 let mode = "seated";    // seated | live | homing   (letters only — toys never seat)
@@ -399,7 +302,7 @@ function plink(b, speed){
    origin + baseline so it can be scaled to whatever size the
    headline happens to render at.
    ================================================================ */
-const FONT_STACK = '"General Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+const FONT_STACK = '"Cabinet Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
 const UNIQUE = [...new Set("michaelmofina")];
 const HCW = 192, HCH = 208, HPX = 28, HBY = 156;   // canvas, pen x, baseline y
 const hullCanvas = document.createElement("canvas");
@@ -468,7 +371,7 @@ function signedArea(v){
 
 function extractHull(ch){
   hctx.clearRect(0, 0, HCW, HCH);
-  hctx.font = "400 " + HULL_PX + "px " + FONT_STACK;
+  hctx.font = "500 " + HULL_PX + "px " + FONT_STACK;
   hctx.textBaseline = "alphabetic";
   hctx.fillStyle = "#000";
   hctx.fillText(ch, HPX, HBY);
@@ -491,7 +394,7 @@ function extractHull(ch){
 }
 
 function buildHulls(){
-  hctx.font = "400 " + HULL_PX + "px " + FONT_STACK;
+  hctx.font = "500 " + HULL_PX + "px " + FONT_STACK;
   const m = hctx.measureText("mh");
   const asc  = (m.fontBoundingBoxAscent  || HULL_PX * .76) / HULL_PX;
   const desc = (m.fontBoundingBoxDescent || HULL_PX * .24) / HULL_PX;
@@ -1102,12 +1005,12 @@ function step(t){
     held.va = 0;
     held.x = nx0; held.y = ny0;
     if(held.tumbles){
-      // carried: the tumble dies and the toy eases around to face the
-      // viewer — the same pose and rate the old presentation tilt used
-      const kk = 1 - Math.exp(-dt * 6.5);
-      held.wx = 0; held.wy = 0;
-      held.rx += dAng(R1_HELD_RX - held.rx) * kk;
-      held.ry += dAng(R1_HELD_RY - held.ry) * kk;
+      // carried: no posed tilt — residual spin just dies out in the hand
+      // and the toy hangs at whatever angle you caught it at
+      const dk = Math.exp(-dt * 4);
+      held.wx *= dk; held.wy *= dk;
+      held.rx = dAng(held.rx + held.wx * dt);
+      held.ry = dAng(held.ry + held.wy * dt);
       held.poseCalm = false;               // it re-settles after release
     }
   }
@@ -1354,37 +1257,20 @@ function kickTumble(b, speed, nx, ny){
 
 /* nearest stable pose — but edge-on only when the tumble genuinely stops
    near ±90°: a slab rarely balances on its edge, so the coin stance stays rare */
-function stableY(ry){
-  const HPI = Math.PI / 2;
-  const near = Math.round(ry / HPI) * HPI;
-  if((Math.round(near / HPI) & 1) === 0) return near;            // face/back
-  if(Math.abs(dAng(ry - near)) <= R1_EDGE_ZONE) return near;     // earned the edge
-  return Math.round(ry / Math.PI) * Math.PI;                     // fall to face/back
-}
-
-/* integrate the tumble each awake frame (the held case lives in step) */
+/* integrate the tumble each awake frame (the held case lives in step).
+   Fully organic: no target poses, no settle spring — spin just damps
+   away and the r1 stays at whatever angle it stopped at. It lands
+   where it lands. */
 function tumbleStep(b, dt){
-  const slow = b.touch && Math.hypot(b.vx, b.vy) < 50;  // the settle block's stillness signal
-  const tgtY = stableY(b.ry) +                            // ry stays wrapped,
-    Math.max(-R1_SWAY, Math.min(R1_SWAY, devGamma * .5)); // so multi-turn tumble never unwinds
-  if(b.poseCalm){
-    // settled — only a moved sway target (the device rolling) re-arms it
-    if(slow && Math.abs(dAng(tgtY - b.ry)) > .02) b.poseCalm = false;
-    else return;
-  }
-  if(slow){
-    const ex = dAng(-b.rx), ey = dAng(tgtY - b.ry);
-    b.wx += (R1_SET_K * ex - R1_SET_D * b.wx) * dt;
-    b.wy += (R1_SET_K * ey - R1_SET_D * b.wy) * dt;
-    if(Math.abs(ex) < .01 && Math.abs(ey) < .01 &&
-       Math.abs(b.wx) < .05 && Math.abs(b.wy) < .05){
-      b.rx = 0; b.ry = dAng(tgtY); b.wx = 0; b.wy = 0;
-      b.poseCalm = true;                 // sleep may proceed; rAF may stop
-      return;
-    }
-  } else {
-    const dk = Math.exp(-(b.touch ? R1_DAMP_GND : R1_DAMP_AIR) * dt);
-    b.wx *= dk; b.wy *= dk;
+  if(b.poseCalm) return;                 // frozen mid-pose until the next kick
+  const grounded = b.touch && Math.hypot(b.vx, b.vy) < 50;
+  const dk = Math.exp(-(grounded ? R1_DAMP_SET
+                       : b.touch ? R1_DAMP_GND : R1_DAMP_AIR) * dt);
+  b.wx *= dk; b.wy *= dk;
+  if(grounded && Math.abs(b.wx) < .04 && Math.abs(b.wy) < .04){
+    b.wx = 0; b.wy = 0;
+    b.poseCalm = true;                   // sleep may proceed; rAF may stop
+    return;
   }
   b.rx = dAng(b.rx + b.wx * dt);
   b.ry = dAng(b.ry + b.wy * dt);
@@ -1614,33 +1500,12 @@ function makeRabbitGL(side){
            busy:bb => !dead && !bb.poseCalm };
 }
 
-function makePhone(hgt){
-  const w = Math.round(hgt * .48);
-  const el = document.createElement("div");
-  el.className = "toy";
-  el.setAttribute("aria-hidden", "true");
-  const rr = Math.round(w * .22);
-  el.style.cssText = "width:" + w + "px;height:" + hgt + "px;" +
-    "background:#17171a;border-radius:" + rr + "px;";
-  const screen = document.createElement("div");
-  screen.style.cssText = "left:3px;top:3px;right:3px;bottom:3px;" +
-    "border:1px solid #fdfdfb;border-radius:" + Math.max(4, rr - 3) + "px;";
-  const island = document.createElement("div");
-  const iw = Math.round(w * .34), ih = Math.max(4, Math.round(hgt * .035));
-  island.style.cssText = "left:" + Math.round((w - iw) / 2) + "px;top:" +
-    Math.round(hgt * .055) + "px;width:" + iw + "px;height:" + ih + "px;" +
-    "background:#000;border-radius:" + ih + "px;";
-  el.append(screen, island);
-  return { el, w, h:hgt, cut:rr * .75 };
-}
-
 function spawnToy(which){
   if(!hullsBuilt) buildHulls();
   const F = fontPx();
   const cap = capHeightPx(F);
   const side = Math.round(cap * 1.25);
-  const spec = which === "r1" ? (makeRabbitGL(side) || makeRabbit(side))
-                              : makePhone(Math.round(cap * 1.5));
+  const spec = makeRabbitGL(side) || makeRabbit(side);
   const b = toyBody(spec.el, spec.w, spec.h, spec.cut);
   if(spec.draw3d){
     b.draw3d = spec.draw3d;
@@ -1651,13 +1516,13 @@ function spawnToy(which){
     b.poseCalm = false;
   }
   b.ch = which;
-  b.x = innerWidth * (which === "r1" ? .3 : .7);
+  b.x = innerWidth * .35;
   b.y = -150;
   b.vx = 0; b.vy = 0;
   b.a = (Math.random() - .5) * .5;
   b.va = (Math.random() - .5) * 1.8;       // a small tossed-in spin
   b.entering = true;                       // the ceiling looks away while it arrives
-  b.toneBase = which === "r1" ? 104 : 88;  // toys thunk, letters plink
+  b.toneBase = 104;                        // the toy thunks, letters plink
   b.toneDur = .13;
   document.body.appendChild(spec.el);
   bodies.push(b);
@@ -1674,7 +1539,6 @@ function toyTimer(which, delay){
   }, delay);
 }
 toyTimer("r1", 2600);
-toyTimer("phone", 3100);
 
 /* ---- resize: seats move; nothing may leave the viewport ---- */
 addEventListener("resize", () => {
