@@ -12,9 +12,12 @@
    The name appears mid-page, holds just long enough to be read,
    then every letter falls. Each one is a rigid body whose collider
    is traced from its own glyph outline, so letters land on their
-   ink, tip over their stems, and stack like real objects. A rabbit
-   r1 drops in after the first spill and never leaves. One viewport,
-   no scroll. Escape or double-click puts the name back together.
+   ink, tip over their stems, and stack like real objects. The four
+   UI pills fall with them — and still work: a clean tap activates,
+   anything longer is a drag. A rabbit r1 drops in after the first
+   spill, an iPhone follows a beat later, and neither ever leaves.
+   One viewport, no scroll. Escape or double-click puts the name
+   (and the pills) back together.
    ============================================================ */
 
 @font-face{
@@ -88,28 +91,51 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
   top:1.75rem; left:1.5rem; right:1.5rem;
   display:flex;
   justify-content:space-between;
+  align-items:flex-start;
   flex-wrap:wrap;
   gap:.2rem 1.5rem;
-  z-index:3;
+  /* no z-index: the corner must not trap its fixed pills in a
+     stacking context of its own once they go live */
 }
-.corner .role{ color:rgba(var(--ink),.6); }
-.shake{
-  margin-top:.65rem;
+
+/* the page's UI text is four pills — real links and buttons that
+   later fall with the letters and still work */
+.pill{
+  display:inline-block;
   font:inherit;
   font-size:.85rem;
   color:rgba(var(--ink),.7);
-  background:none;
+  background:var(--paper);       /* an opaque chip once it flies over letters */
   border:1px solid rgba(var(--ink),.25);
   border-radius:999px;
   padding:.3rem .85rem;
+  text-decoration:none;
   cursor:pointer;
   transition:color .2s ease, border-color .2s ease, opacity .4s ease;
 }
-.shake:hover{ color:var(--accent); border-color:var(--accent); }
-.shake:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; }
-.shake.gone{ opacity:0; pointer-events:none; }
-.corner .at a{ color:var(--accent); text-decoration:none; }
-.corner .at a:hover{ text-decoration:underline; text-underline-offset:.18em; }
+span.pill{ cursor:default; }       /* #pd answers to nothing */
+.pill[hidden]{ display:none; }     /* inline-block must not defeat hidden */
+a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent); }
+.pill:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; }
+.pill.gone{ opacity:0; pointer-events:none; }
+#at span{ color:var(--accent); }
+
+/* physics owns a live pill exactly the way it owns a live letter */
+.pill.live{
+  position:fixed;
+  left:0; top:0;
+  z-index:9;
+  margin:0;
+  cursor:grab;
+  touch-action:none;
+  transform-origin:0 0;
+  will-change:transform;
+  user-select:none;
+  -webkit-user-select:none;
+}
+.pill.live.held{ cursor:grabbing; color:var(--accent); border-color:var(--accent); }
+
+.row{ display:flex; align-items:center; gap:.9rem; }
 
 /* the name — one line, sized to fit with a little bleed-proofing */
 .big{
@@ -143,9 +169,9 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
 body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
 /* the two toys that join the pile — sized in px by the script to
-   match the headline's cap height. The iPhone is DOM-drawn, flat
-   fills only; the r1 is a WebGL canvas when it can be, and the same
-   flat DOM drawing when it can't. */
+   match the headline's cap height. Both render their real baked
+   meshes through WebGL; the r1 falls back to a flat DOM drawing
+   when it can't, the iPhone simply doesn't show up. */
 .toy{
   position:fixed;
   left:0; top:0;
@@ -171,6 +197,9 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   visibility:hidden;
   pointer-events:none;
 }
+/* name above, pill row below — and the twin must stack exactly
+   like the real thing or the seats would lie */
+.hero, .ghost{ flex-direction:column; gap:1.15rem; }
 
 .sr-only{
   position:absolute; width:1px; height:1px; margin:-1px; padding:0;
@@ -188,22 +217,29 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
 <section class="hero">
   <div class="corner fade" style="--d:0ms">
-    <div>
-      <p class="role">Product Designer</p>
-      <button class="shake" id="shake" hidden>Shake it up</button>
-    </div>
-    <p class="at">Currently at <a href="https://todoist.com">Todoist</a>.</p>
+    <span class="pill" id="pd">Product Designer</span>
+    <a class="pill" id="at" href="https://todoist.com">Currently at <span>Todoist</span>.</a>
   </div>
 
   <h1 class="big fade" id="name" style="--d:80ms">
     <span class="sr-only">michael mofina</span><span aria-hidden="true" id="visname"><span class="word">michael</span><span class="word">mofina</span></span>
   </h1>
 
-  <!-- invisible twin used only to know where the letters' seats are -->
-  <div class="ghost" aria-hidden="true"><p class="big" id="ghostname"></p></div>
+  <div class="row fade" id="pillrow" style="--d:160ms">
+    <button class="pill" id="shake" hidden>Shake it up</button>
+    <a class="pill" id="contact" href="mailto:info@michaelmofina.com">Get in touch</a>
+  </div>
+
+  <!-- invisible twin used only to know where the letters' and pills' seats are -->
+  <div class="ghost" aria-hidden="true">
+    <div class="corner" id="gcorner"></div>
+    <p class="big" id="ghostname"></p>
+    <div class="row" id="grow"></div>
+  </div>
 </section>
 
 <script src="r1-mesh.js"></script>
+<script src="iphone-mesh.js"></script>
 <script>
 (() => {
 "use strict";
@@ -230,9 +266,10 @@ const seats   = [...ghostP.querySelectorAll(".letter")];
 if(reduced) return;   // the name simply stays a name; no toys, no handlers
 
 /* ================================================================
-   Physics — 13 rigid letters (plus two toys, later) whose colliders
-   are convex hulls traced from the glyphs themselves. SAT contacts,
-   impulse solver with full rotational terms, friction, sleep.
+   Physics — 13 rigid letters (plus four pills and two toys, later)
+   whose colliders are convex hulls traced from the glyphs themselves
+   or cut as rounded slabs. SAT contacts, impulse solver with full
+   rotational terms, friction, sleep.
    ================================================================ */
 
 /* ---- every physics tunable lives in this block ---- */
@@ -258,11 +295,16 @@ const WAKE_V     = 80;     // contact approach speed that wakes a sleeper
 const HULL_PX    = 128;    // size glyphs are rasterized at for tracing
 const HULL_MAXV  = 12;     // max vertices kept per glyph hull
 const TOY_DENS   = 1.4;    // toys are denser than letters
+const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const SND_BODY   = 200;    // letter-letter impact speed that earns a plink
 const SND_WALL   = 140;    // wall/floor impact speed that earns one
+const TAP_PX     = 6;      // pointer travel under this…
+const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
+const SQUASH_MS  = 260;    // #pd's tap reply: one squash-and-recover this long
+const IP_SIDE    = 1.52;   // iPhone canvas ÷ cap height (≈1.5× cap tall after margin)
 
-/* ---- r1 depth-tumble (the WebGL toy only; the flat fallback has none) ---- */
-const R1_THICK      = .18;   // depth ÷ height — the bake spans z ±0.1814 on a 2.0 model
+/* ---- depth-tumble (the WebGL toys only; the flat r1 fallback has none) ---- */
+const R1_THICK      = .18;   // r1 depth ÷ height — its bake spans z ±0.1814 on a 2.0 model
 const R1_DAMP_AIR   = 1.2;   // tumble decay while airborne, 1/s
 const R1_DAMP_GND   = 2.6;   // tumble decay while touching but still sliding, 1/s
 const R1_KICK_FLING = .002;  // fling speed (px/s) → tumble (rad/s)
@@ -272,9 +314,11 @@ const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays un
 const R1_DAMP_SET   = 3.5;   // grounded spin die-off, 1/s — it lands where it lands
 const R1_HULL_DW    = 2;     // px of width change that justifies re-cutting the collider
 
-let mode = "seated";    // seated | live | homing   (letters only — toys never seat)
+let mode = "seated";    // seated | live | homing   (letters + pills — toys never seat)
 let raf = 0, lastT = 0;
 let held = null, pointerId = null;
+let tap = null;         // pill press bookkeeping — a short, still press activates
+let squashUntil = 0;    // while > now, #pd is mid-squash and the loop must run
 let spilled = false;
 const target = { x:0, y:0 };
 const samples = [];
@@ -440,7 +484,7 @@ function buildHulls(){
 }
 
 /* ---- rigid bodies ---- */
-const bodies = [];                 // 13 letters first; the two toys join later
+const bodies = [];                 // 13 letters first; pills and toys join later
 const bodyByEl = new Map();
 
 function mkBody(el, kind){
@@ -458,11 +502,13 @@ function mkBody(el, kind){
     homeDelay:0, homed:true, dropAt:0,
     entering:false,              // toys fall in from above the ceiling plane
     toneBase:0, toneDur:0,
-    draw3d:null,                 // the WebGL r1 hangs its painter here
-    tumbles:false,               // the 3D r1 carries real depth-tumble state:
+    draw3d:null,                 // a WebGL toy hangs its painter here
+    tumbles:false,               // a 3D toy carries real depth-tumble state:
     rx:0, ry:0, wx:0, wy:0,      //   pitch/yaw + angular velocities (rad, rad/s)
     poseCalm:true, lastKick:0,   //   settled flag + impact-kick rate limiter
+    thick3d:0,                   //   depth ÷ height, per model (r1 ≠ iPhone)
     toyW:0, toyH:0, toyCut:0, hullW:0,   // toy box + current depth-aware hull width
+    squashUntil:0,               // #pd's little tap reply, an end timestamp
   };
   for(let i = 0; i < HULL_MAXV; i++){ b.lv.push({x:0, y:0}); b.wv.push({x:0, y:0}); }
   bodyByEl.set(el, b);
@@ -477,6 +523,27 @@ letters.forEach((el, i) => {
 
 function wake(b){ b.sleeping = false; b.still = 0; b.sx = b.x; b.sy = b.y; b.sa = b.a; }
 function wakeAll(){ for(const b of bodies) wake(b); }
+
+/* pull a body out of the world entirely — the shake pill once tilt is
+   armed, or a 3D toy whose GL context died. The element goes with it;
+   everyone is woken so nothing keeps resting on a memory. */
+function removeBody(b){
+  if(held === b){                      // pried out of a hand: let go cleanly
+    removeEventListener("pointermove", onMove);
+    removeEventListener("pointerup", onUp);
+    removeEventListener("pointercancel", onUp);
+    document.body.classList.remove("grabbing");
+    pointerId = null;
+    held = null;
+    tap = null;
+  }
+  const k = bodies.indexOf(b);
+  if(k >= 0) bodies.splice(k, 1);
+  bodyByEl.delete(b.el);
+  b.el.remove();
+  wakeAll();
+  start();
+}
 
 /* ---- polygon mass properties: area, centroid, inertia about it ---- */
 const geomOut = { area:1, cx:0, cy:0, I:1 };
@@ -555,22 +622,41 @@ function goLive(){
   // inheriting the headline's font size.)
   document.querySelectorAll(".fade").forEach(el => { el.style.animation = "none"; });
   const name = document.getElementById("name");
+  const row  = document.getElementById("pillrow");
   name.style.height = name.getBoundingClientRect().height + "px"; // keep hero layout
+  row.style.height  = row.getBoundingClientRect().height + "px";  // …row included
   refreshGeometry();                          // hulls at the rendered size
   const now = performance.now();
   for(const b of bodies){
-    if(b.kind !== "letter") continue;
-    const r = b.el.getBoundingClientRect();
-    b.x = r.left + b.cx;                      // the body lives at the glyph's
-    b.y = r.top + b.cy;                       // centroid, not the box centre
-    b.vx = (Math.random() - .5) * 60;         // a whisper of sideways drift
-    b.vy = 0;
-    b.a = 0;
-    b.va = (Math.random() - .5) * 2.4;
-    b.homed = false;
-    b.dropAt = now + b.i * 26 + Math.random() * 90;  // ragged, not synchronized
+    if(b.kind === "letter"){
+      const r = b.el.getBoundingClientRect();
+      b.x = r.left + b.cx;                      // the body lives at the glyph's
+      b.y = r.top + b.cy;                       // centroid, not the box centre
+      b.vx = (Math.random() - .5) * 60;         // a whisper of sideways drift
+      b.vy = 0;
+      b.a = 0;
+      b.va = (Math.random() - .5) * 2.4;
+      b.homed = false;
+      b.dropAt = now + b.i * 26 + Math.random() * 90;  // ragged, not synchronized
+    } else if(b.kind === "pill"){
+      const r = b.el.getBoundingClientRect();
+      // a pill is a rounded-rect chip: octagon cut at 3/4 of the painted
+      // corner radius (the CSS 999px resolves to half the short side)
+      const br = Math.min(parseFloat(getComputedStyle(b.el).borderRadius) || 0,
+                          r.height / 2, r.width / 2);
+      setSlabGeometry(b, r.width, r.height, br * .75, PILL_DENS);
+      b.x = r.left + b.cx;
+      b.y = r.top + b.cy;
+      b.vx = (Math.random() - .5) * 60;
+      b.vy = 0;
+      b.a = 0;
+      b.va = (Math.random() - .5) * 1.6;        // chips spin a touch less
+      b.homed = false;
+      b.dropAt = now + Math.random() * 380;     // inside the letters' ragged window
+    }
   }
-  letters.forEach(el => el.classList.add("live"));
+  for(const b of bodies)
+    if(b.kind === "letter" || b.kind === "pill") b.el.classList.add("live");
   mode = "live";
   spilled = true;
   wakeAll();       // toys under the raining letters must notice
@@ -598,20 +684,26 @@ function pushSample(e){
 }
 function onDown(e){
   let el = e.target.closest
-    ? (e.target.closest(".letter.live") || e.target.closest(".toy")) : null;
-  if(!el && mode === "seated" && e.target.closest && e.target.closest("#visname .letter")){
-    el = e.target.closest("#visname .letter");   // grabbing the seated name spills it
-    clearTimeout(fallTimer);
-    goLive();
+    ? (e.target.closest(".letter.live") || e.target.closest(".pill.live") ||
+       e.target.closest(".toy")) : null;
+  if(!el && mode === "seated" && e.target.closest &&
+     e.target.closest("#visname .letter")){
+    clearTimeout(fallTimer);                     // grabbing the seated name spills the
+    goLive();                                    // page; seated pills stay pure buttons
+    el = e.target.closest("#visname .letter");
   }
   if(!el) return;
   const b = bodyByEl.get(el);
   if(!b) return;
-  if(mode === "homing" && b.kind === "letter") return;  // homing letters are spoken for
+  if(mode === "homing" && b.kind !== "toy") return;  // homing bodies are spoken for
   ensureAudio();
-  if(b.kind === "letter" && mode === "live") b.dropAt = 0;  // a grabbed letter falls now
+  if(b.kind !== "toy" && mode === "live") b.dropAt = 0;  // a grabbed body falls now
   held = b;
   held.el.classList.add("held");
+  // a press on a pill might be a tap: remember where and when it began
+  tap = b.kind === "pill"
+    ? { b, t:performance.now(), x:e.clientX, y:e.clientY, path:0 }
+    : null;
   pointerId = e.pointerId;
   samples.length = 0;
   pushSample(e);
@@ -628,6 +720,10 @@ function onMove(e){
   if(e.pointerId !== pointerId) return;
   target.x = e.clientX; target.y = e.clientY;
   pushSample(e);
+  if(tap){                                   // total travel, not net displacement
+    tap.path += Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
+    tap.x = e.clientX; tap.y = e.clientY;
+  }
 }
 function onUp(e){
   if(e.pointerId !== pointerId) return;
@@ -658,13 +754,41 @@ function onUp(e){
         held.poseCalm = false;
       }
     }
+    // a press that never really moved and ended quickly is a tap — the
+    // pill acts; anything longer or farther was a drag and must not
+    const wasTap = tap && tap.b === held && e.type === "pointerup" &&
+                   tap.path <= TAP_PX && performance.now() - tap.t < TAP_MS;
     held.el.classList.remove("held");
     wake(held);
     held = null;
+    if(wasTap) activatePill(tap.b);
   }
+  tap = null;
   start();
 }
 addEventListener("pointerdown", onDown);
+
+/* what each pill does when tapped (or, seated, natively clicked) */
+function activatePill(b){
+  const el = b.el;
+  if(el.id === "at" || el.id === "contact") location.href = el.href;
+  else if(el.id === "shake") armTilt();
+  else if(el.id === "pd"){                  // no job — a tiny squash for fun
+    b.squashUntil = performance.now() + SQUASH_MS;
+    squashUntil = b.squashUntil;
+    start();
+  }
+}
+
+/* while a pill is physics, its native click must never fire — taps are
+   resolved by hand above, and a drag that ends on the element would
+   otherwise still navigate (pointer capture keeps the click on it) */
+function pillClickGuard(e){
+  if(this.classList.contains("live")){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+}
 
 /* ================================================================
    Tilt the world — on touch devices the phone's orientation rotates
@@ -682,16 +806,24 @@ let tiltDX = 0, tiltDY = 1;      // smoothed gravity direction (≈ unit)
 let wakeDX = 0, wakeDY = 1;      // direction the pile last settled under
 let devGamma = 0;                // smoothed roll, borrowed for the r1's idle sway
 const WAKE_DOT = Math.cos(4 * Math.PI / 180);
+const TILT_PIVOT = 25 * Math.PI / 180;  // neutral pitch — phones are held, not laid flat:
+const TILT_GAIN  = 1.4;                 // ~50° hold reads as gentle down; ~45° back-tilt
+                                        // from the hand swings gravity into reverse.
+                                        // (Pivot applies to device pitch — tuned for
+                                        // portrait, the way phones are actually held.)
 
 function onTilt(e){
   if(e.beta == null || e.gamma == null) return;
   const beta  = e.beta  * Math.PI / 180;
   const gamma = e.gamma * Math.PI / 180;
   devGamma += (gamma - devGamma) * .15;
+  // re-centered pitch: subtract the natural holding angle, amplify a touch
+  let be = (beta - TILT_PIVOT) * TILT_GAIN;
+  be = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, be));
   // in-plane gravity in portrait device coords (screen y down):
-  // g_device = (cosβ·sinγ, sinβ) of a unit earth-gravity vector
-  let gx = Math.cos(beta) * Math.sin(gamma);
-  let gy = Math.sin(beta);
+  // g_device = (cosβ'·sinγ, sinβ') of a unit earth-gravity vector
+  let gx = Math.cos(be) * Math.sin(gamma);
+  let gy = Math.sin(be);
   // …rotated into page coords when the UI is in landscape
   const ang = (screen.orientation && typeof screen.orientation.angle === "number")
     ? screen.orientation.angle
@@ -727,7 +859,12 @@ function armTilt(){
     if(shakeBtn){                    // the button's job is over either way
       shakeBtn.classList.add("gone");
       shakeBtn.disabled = true;
-      setTimeout(() => { shakeBtn.hidden = true; }, 400);
+      setTimeout(() => {             // after the fade, leave no trace: the
+        const b = bodyByEl.get(shakeBtn);      // body, the element, the seat
+        if(b) removeBody(b);
+        else shakeBtn.remove();
+        if(ghostShake) ghostShake.hidden = true;
+      }, 400);
     }
   };
   const ask = DeviceOrientationEvent.requestPermission;
@@ -745,16 +882,51 @@ function armTilt(){
 const shakeBtn = document.getElementById("shake");
 if(shakeBtn && hasTouch && typeof DeviceOrientationEvent !== "undefined"){
   shakeBtn.hidden = false;
-  shakeBtn.addEventListener("click", armTilt);
+  shakeBtn.addEventListener("click", () => {   // live taps arm via activatePill
+    if(!shakeBtn.classList.contains("live")) armTilt();
+  });
 }
+
+/* ================================================================
+   Pills — the four bits of page UI are rigid bodies too. They spill
+   with the letters, drag and fling like them, and home to seats kept
+   by ghost clones (a hidden shake pill's clone stays hidden with it,
+   so the row's twin always lays out like the real one). Seated, they
+   are plain links and buttons again. Reduced motion never reaches
+   this code — the IIFE returned long ago.
+   ================================================================ */
+const pillEls = [
+  document.getElementById("pd"),
+  document.getElementById("at"),
+  shakeBtn,
+  document.getElementById("contact"),
+];
+const gcorner = document.getElementById("gcorner");
+const grow    = document.getElementById("grow");
+let ghostShake = null;
+pillEls.forEach((el, k) => {
+  const c = el.cloneNode(true);        // the ghost twin gains a pill clone
+  c.removeAttribute("id");
+  (k < 2 ? gcorner : grow).appendChild(c);
+  seats.push(c);                       // seatRect(i) now answers for pills too
+  if(el === shakeBtn) ghostShake = c;
+  el.addEventListener("click", pillClickGuard);
+  if(el.hidden) return;                // no body for a pill that isn't shown
+  const b = mkBody(el, "pill");
+  b.i = letters.length + k;            // seats[13..16], gaps where pills hide
+  b.toneBase = 170;                    // a chip knocks deeper than a letter
+  b.toneDur = .1;
+  bodies.push(b);                      // geometry arrives at goLive, measured
+});
 
 /* ---- home: the name puts itself back together (letters only) ---- */
 function goHome(){
   if(mode === "seated" || mode === "homing") return;
   clearTimeout(fallTimer);
-  if(held && held.kind === "letter"){          // the hand lets go of letters;
+  if(held && held.kind !== "toy"){             // the hand lets go of homers;
     held.el.classList.remove("held");          // a held toy stays held
     held = null;
+    tap = null;
     if(pointerId !== null){
       removeEventListener("pointermove", onMove);
       removeEventListener("pointerup", onUp);
@@ -766,8 +938,8 @@ function goHome(){
   const now = performance.now();
   const TAU = Math.PI * 2;
   for(const b of bodies){
-    if(b.kind !== "letter") continue;
-    b.homeDelay = now + b.i * 35;
+    if(b.kind === "toy") continue;
+    b.homeDelay = now + b.i * 35;         // pills trail in after the last letter
     b.homed = false;
     b.a -= Math.round(b.a / TAU) * TAU;   // untwist the short way, not N full turns
   }
@@ -778,12 +950,14 @@ function goHome(){
 function seatAll(){
   mode = "seated";
   for(const b of bodies){
-    if(b.kind !== "letter") continue;
+    if(b.kind === "toy") continue;
     b.el.classList.remove("live");
     b.el.style.transform = "";
   }
-  // the letters never left their word spans — dropping .live restores text flow
+  // nothing ever left its parent — dropping .live restores text flow, and
+  // the pills are genuine focusable links and buttons again
   document.getElementById("name").style.height = "";
+  document.getElementById("pillrow").style.height = "";
 }
 addEventListener("keydown", e => { if(e.key === "Escape") goHome(); });
 addEventListener("dblclick", goHome);
@@ -796,7 +970,7 @@ addEventListener("dblclick", goHome);
    the hot loop allocates nothing.
    ================================================================ */
 const contacts = [];
-for(let i = 0; i < 160; i++){
+for(let i = 0; i < 256; i++){
   contacts.push({ a:null, b:null, px:0, py:0, nx:0, ny:0, pen:0,
                   rax:0, ray:0, rbx:0, rby:0, mN:1, mT:1, bias:0, jn:0, jt:0 });
 }
@@ -953,7 +1127,7 @@ function prepContact(c){
   if(vn < -(B ? SND_BODY : SND_WALL)){
     plink(B && B.rad < A.rad ? B : A, -vn);
   }
-  // …and a hard-enough hit sends the 3D r1 tumbling in depth (same
+  // …and a hard-enough hit sends a 3D toy tumbling in depth (same
   // pathway as the plink — no collision detection of its own)
   if(vn < -R1_KICK_MIN){
     if(A.tumbles) kickTumble(A, -vn, c.nx, c.ny);
@@ -1076,7 +1250,7 @@ function step(t){
   if(mode === "homing"){
     let allHome = true;
     for(const b of bodies){
-      if(b.kind !== "letter" || b.homed) continue;
+      if(b.kind === "toy" || b.homed) continue;
       if(t < b.homeDelay){ allHome = false; continue; }
       const s = seatRect(b.i);
       const hx = s.left + b.cx, hy = s.top + b.cy;
@@ -1094,14 +1268,14 @@ function step(t){
     if(allHome) seatAll();       // letters return to text; toys carry on below
   }
 
-  // the 3D r1's collider width tracks its yaw — face-on the full octagon,
+  // a 3D toy's collider width tracks its yaw — face-on the full octagon,
   // edge-on a thin slab (a fattening hull pushes, never teleports)
   for(const b of bodies) if(b.tumbles) r1TrackWidth(b);
 
   // broadphase + narrowphase
   nContacts = 0;
   for(const b of bodies){
-    b.col = b.sim && !(b.kind === "letter" && mode === "homing");
+    b.col = b.sim && !(b.kind !== "toy" && mode === "homing");
     if(b.col) updateWorld(b);
   }
   for(let i = 0; i < bodies.length; i++){
@@ -1149,7 +1323,7 @@ function step(t){
   /* nothing may ever be lost */
   for(const b of bodies){
     if(!isFinite(b.x + b.y + b.vx + b.vy + b.a + b.va)){
-      if(b.kind === "letter"){
+      if(b.kind !== "toy"){
         const s = seatRect(b.i);
         b.x = s.left + b.cx; b.y = s.top + b.cy;
       } else {
@@ -1176,7 +1350,7 @@ function step(t){
   let anyAwake = false, anyWaiting = false, justSnapped = false;
   for(const b of bodies){
     if(!b.sim){
-      if(b.kind === "letter" && mode === "live" && t < b.dropAt) anyWaiting = true;
+      if(b.kind !== "toy" && mode === "live" && t < b.dropAt) anyWaiting = true;
       continue;
     }
     if(b === held){ anyAwake = true; continue; }
@@ -1209,48 +1383,58 @@ function step(t){
   if(justSnapped) render(t);
 
   const busy = held || mode === "homing" || anyAwake || anyWaiting ||
-               (r1busy && r1busy());   // the r1's pose may still be settling
+               t < squashUntil ||      // #pd may still be mid-squash
+               any3DBusy();            // a 3D toy's pose may still be settling
   if(busy) raf = requestAnimationFrame(step);
 }
 
 function render(t){
   for(const b of bodies){
-    if(b.kind === "letter"){
+    if(b.kind !== "toy"){
       if(mode === "seated") continue;
       if(mode === "live" && t < b.dropAt && b !== held){
-        // waiting letters hold their seat, pixel-perfect
+        // waiting letters (and pills) hold their seat, pixel-perfect
         b.el.style.transform = "translate3d(" + (b.x - b.cx).toFixed(2) + "px," +
                                (b.y - b.cy).toFixed(2) + "px,0)";
         continue;
       }
     }
     // place the centroid, rotate about it, then offset back to the box corner
+    // (#pd's tap squash slips in about the same centroid — purely cosmetic)
+    let sq = "";
+    if(b.squashUntil > t){
+      const s = Math.sin((1 - (b.squashUntil - t) / SQUASH_MS) * Math.PI) * .16;
+      sq = " scale(" + (1 + s).toFixed(3) + "," + (1 - s).toFixed(3) + ")";
+    }
     b.el.style.transform = "translate3d(" + b.x.toFixed(2) + "px," + b.y.toFixed(2) +
-      "px,0) rotate(" + b.a.toFixed(3) + "rad) translate(" +
+      "px,0) rotate(" + b.a.toFixed(3) + "rad)" + sq + " translate(" +
       (-b.cx).toFixed(2) + "px," + (-b.cy).toFixed(2) + "px)";
     if(b.draw3d) b.draw3d(t, b);   // repaint the canvas sprite if it changed
   }
 }
 
 /* ================================================================
-   The toys — a rabbit r1 and an iPhone. The iPhone is drawn with
-   divs and flat fills; the r1 renders its real baked mesh through
-   WebGL when it can (and the same flat divs when it can't). They
-   crash the pile a beat after the first spill and then live on this
-   page forever: reassembly ignores them, re-spills rain letters onto
-   them, and they drag and fling like everything else.
+   The toys — a rabbit r1 and an iPhone 17 Pro, each rendering its
+   real baked mesh through WebGL. The r1 degrades to flat divs when
+   it can't; the iPhone simply stays home. They crash the pile a
+   beat after the first spill and then live on this page forever:
+   reassembly ignores them, re-spills rain letters onto them, and
+   they drag and fling like everything else.
    ================================================================ */
-function toyBody(el, w, h, cut){
-  const b = mkBody(el, "toy");
+/* a rounded-slab octagon about the centroid — shared by the toys and
+   the pills. w/h/cut describe the HULL; bw/bh (default w/h) are the
+   element box the centroid sits in, because the iPhone draws on a
+   square canvas wider than the slab it actually is. */
+function setSlabGeometry(b, w, h, cut, dens, bw, bh){
   const w2 = w / 2, h2 = h / 2, c = cut;
   const oct = [
     {x:-w2 + c, y:-h2}, {x:w2 - c, y:-h2}, {x:w2, y:-h2 + c}, {x:w2, y:h2 - c},
     {x:w2 - c, y:h2}, {x:-w2 + c, y:h2}, {x:-w2, y:h2 - c}, {x:-w2, y:-h2 + c},
   ];
-  const g = polyProps(oct, 8, TOY_DENS);
+  const g = polyProps(oct, 8, dens);
   b.nv = 8;
-  b.cx = w2; b.cy = h2;              // symmetric: centroid = box centre
-  b.m = Math.max(60, g.area * TOY_DENS); b.invM = 1 / b.m;
+  b.cx = (bw || w) / 2; b.cy = (bh || h) / 2;   // symmetric: centroid = box centre
+  b.m = Math.max(60, g.area * dens); b.invM = 1 / b.m;
   b.I = g.I; b.invI = 1 / b.I;
   let r = 0;
   for(let i = 0; i < 8; i++){
@@ -1260,18 +1444,22 @@ function toyBody(el, w, h, cut){
   b.rad = r;
   b.toyW = w; b.toyH = h; b.toyCut = cut;   // the depth-aware hull re-cuts from these
   b.hullW = w;
+}
+function toyBody(el, w, h, cut, bw, bh){
+  const b = mkBody(el, "toy");
+  setSlabGeometry(b, w, h, cut, TOY_DENS, bw, bh);
   return b;
 }
 
-/* ---- the r1's depth tumble ------------------------------------------
+/* ---- the 3D toys' depth tumble --------------------------------------
    Real angular state in depth: pitch rx and yaw ry (rad) with angular
    velocities wx, wy — while the solver's in-plane angle b.a stays
    untouched. Flings and impacts kick it, air and ground drag calm it,
    and once the body is down and slow a lightly under-damped spring
    rocks it onto the nearest stable pose: face (0), back (±PI), or
    standing edge-on like a coin (±PI/2). The collision hull narrows to
-   match the silhouette as it turns. Only the WebGL r1 sets b.tumbles —
-   the flat CSS fallback has no depth to tumble through. */
+   match the silhouette as it turns. Only the WebGL toys set b.tumbles —
+   the flat CSS r1 fallback has no depth to tumble through. */
 function dAng(d){          // wrap any angle difference into [-PI, PI)
   d = (d + Math.PI) % (2 * Math.PI);
   if(d < 0) d += 2 * Math.PI;
@@ -1340,7 +1528,7 @@ function r1SetWidth(b, w){
   }
 }
 function r1TrackWidth(b){
-  const thick = b.toyH * R1_THICK;          // never thinner than the toy is deep
+  const thick = b.toyH * (b.thick3d || R1_THICK);  // never thinner than it is deep
   const eff = Math.max(thick,
     thick + (b.toyW - thick) * Math.abs(Math.cos(b.ry)));
   if(Math.abs(eff - b.hullW) > R1_HULL_DW) r1SetWidth(b, eff);
@@ -1376,38 +1564,40 @@ function makeRabbit(side){
 }
 
 /* ================================================================
-   The 3D r1 — the baked mesh from r1-mesh.js drawn by a tiny
-   hand-rolled WebGL1 renderer: one program, baseColor texture,
-   two-light lambert, and a soft rim so the black screen face still
-   reads. The solver's in-plane angle is untouched — this canvas is
-   CSS-positioned and CSS-rotated by the body angle exactly like the
-   flat toy it replaces. Depth, though, is real state now: the body
-   carries pitch/yaw (b.rx, b.ry) with angular velocity, kicked by
-   flings and impacts, springing onto a stable rest pose — face,
-   back, or standing edge-on like a coin — once it is down, while
-   the collision hull narrows to match (all of that lives up in the
-   physics section; this painter just draws whatever pose the body
-   holds). A second matrix folds the body angle back into the
-   normals so the lights stay fixed on the page while the model
-   tumbles. Missing mesh, no WebGL, or any failure at all: return
-   null and the flat CSS rabbit above ships instead — it has no
-   depth, so it never tumbles and keeps the face-on hull.
+   The 3D toys — baked meshes drawn by a tiny hand-rolled WebGL1
+   renderer, one shader family, two paths: a textured path (the
+   r1's baseColor skin, the iPhone's wallpaper OLED) and a
+   vertex-colored path (the iPhone's body, whose 17 materials were
+   baked to per-vertex sRGB). Two-light lambert plus a soft rim so
+   black faces still read. The solver's in-plane angle is untouched
+   — each canvas is CSS-positioned and CSS-rotated by the body
+   angle exactly like the flat toy it replaces. Depth, though, is
+   real state: the body carries pitch/yaw (b.rx, b.ry) with angular
+   velocity, kicked by flings and impacts, damping out wherever it
+   stops, while the collision hull narrows to match (all of that
+   lives up in the physics section; these painters just draw
+   whatever pose the body holds). A second matrix folds the body
+   angle back into the normals so the lights stay fixed on the page
+   while the model tumbles. Missing mesh, no WebGL, or any failure
+   at all: return null — the r1 then ships its flat CSS stand-in,
+   the iPhone simply stays home.
    ================================================================ */
-let r1busy = null;         // step() asks this whether the r1's pose has settled
+const busy3D = [];         // step() asks every 3D toy whether its pose settled
+function any3DBusy(){
+  for(let i = 0; i < busy3D.length; i++) if(busy3D[i]()) return true;
+  return false;
+}
 
-function makeRabbitGL(side){
-  const MSH = window.R1_MESH;
-  if(!MSH || !MSH.pos || !MSH.nrm || !MSH.uv || !MSH.idx || !MSH.idx.length)
-    return null;
+function makeModelGL(batches, side, opts){
   const el = document.createElement("canvas");
   el.className = "toy";
   el.setAttribute("aria-hidden", "true");
   el.style.width = side + "px";
   el.style.height = side + "px";
-  const opts = { alpha:true, antialias:true, premultipliedAlpha:true };
+  const glOpts = { alpha:true, antialias:true, premultipliedAlpha:true };
   let gl = null;
   try{
-    gl = el.getContext("webgl", opts) || el.getContext("experimental-webgl", opts);
+    gl = el.getContext("webgl", glOpts) || el.getContext("experimental-webgl", glOpts);
   }catch(err){ gl = null; }
   if(!gl) return null;
 
@@ -1417,79 +1607,102 @@ function makeRabbitGL(side){
     gl.compileShader(s);
     return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
   }
-  const vs = sh(gl.VERTEX_SHADER,
-    "attribute vec3 aP;attribute vec3 aN;attribute vec2 aT;" +
-    "uniform mat3 uM;uniform mat3 uL;varying vec3 vN;varying vec2 vT;" +
-    "void main(){vec3 p=uM*aP;gl_Position=vec4(p.xy,-p.z*.35,1.);vN=uL*aN;vT=aT;}");
-  const fs = sh(gl.FRAGMENT_SHADER,
-    "precision mediump float;uniform sampler2D uT;varying vec3 vN;varying vec2 vT;" +
-    "void main(){vec3 n=normalize(vN);vec3 c=texture2D(uT,vT).rgb;" +
+  function mkProg(vsSrc, fsSrc){
+    const vs = sh(gl.VERTEX_SHADER, vsSrc), fs = sh(gl.FRAGMENT_SHADER, fsSrc);
+    if(!vs || !fs) return null;
+    const p = gl.createProgram();
+    gl.attachShader(p, vs);
+    gl.attachShader(p, fs);
+    gl.linkProgram(p);
+    return gl.getProgramParameter(p, gl.LINK_STATUS) ? p : null;
+  }
+  // the same lambert+rim tail for both paths; only where c comes from differs
+  const LIGHT =
     "float ka=max(dot(n,vec3(-.42,.61,.67)),0.);" +      // key light, upper left front
     "float kb=max(dot(n,vec3(.79,-.33,.52)),0.);" +      // fill, lower right
     "float rim=pow(max(1.-abs(n.z),0.),2.6)*.3;" +       // fresnel-ish edge (max: no NaN on mediump rounding)
-    "gl_FragColor=vec4(c*(.34+.66*ka+.2*kb)+rim,1.);}");
-  if(!vs || !fs) return null;
-  const prog = gl.createProgram();
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-  gl.useProgram(prog);
-
-  function attrib(name, data, size){
-    const bo = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, bo);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, name);
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+    "gl_FragColor=vec4(c*(.34+.66*ka+.2*kb)+rim,1.);";
+  let progTex = null, locTex = null;
+  if(batches.some(bt => bt.uv)){
+    // uZB nudges a batch toward the viewer: the iPhone's OLED sits behind
+    // its own cover glass, baked opaque black — without the nudge the
+    // wallpaper loses the depth test to it. The r1 passes 0 (a no-op).
+    progTex = mkProg(
+      "attribute vec3 aP;attribute vec3 aN;attribute vec2 aT;" +
+      "uniform mat3 uM;uniform mat3 uL;uniform float uZB;" +
+      "varying vec3 vN;varying vec2 vT;" +
+      "void main(){vec3 p=uM*aP;gl_Position=vec4(p.xy,-p.z*.35-uZB,1.);vN=uL*aN;vT=aT;}",
+      "precision mediump float;uniform sampler2D uT;varying vec3 vN;varying vec2 vT;" +
+      "void main(){vec3 n=normalize(vN);vec3 c=texture2D(uT,vT).rgb;" + LIGHT + "}");
+    if(!progTex) return null;
+    gl.useProgram(progTex);
+    gl.uniform1i(gl.getUniformLocation(progTex, "uT"), 0);
+    locTex = { prog:progTex,
+               aP:gl.getAttribLocation(progTex, "aP"),
+               aN:gl.getAttribLocation(progTex, "aN"),
+               aX:gl.getAttribLocation(progTex, "aT"), xSize:2,
+               uM:gl.getUniformLocation(progTex, "uM"),
+               uL:gl.getUniformLocation(progTex, "uL"),
+               uZB:gl.getUniformLocation(progTex, "uZB") };
   }
-  attrib("aP", MSH.pos, 3);
-  attrib("aN", MSH.nrm, 3);
-  attrib("aT", MSH.uv, 2);
-  const ibo = gl.createBuffer();
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, MSH.idx, gl.STATIC_DRAW);
-  const nIdx = MSH.idx.length;
-  const uM = gl.getUniformLocation(prog, "uM");
-  const uL = gl.getUniformLocation(prog, "uL");
-  gl.uniform1i(gl.getUniformLocation(prog, "uT"), 0);
-  gl.enable(gl.DEPTH_TEST);
-  gl.clearColor(0, 0, 0, 0);
+  let progCol = null, locCol = null;
+  if(batches.some(bt => bt.rgb)){
+    progCol = mkProg(
+      "attribute vec3 aP;attribute vec3 aN;attribute vec3 aVertexColor;" +
+      "uniform mat3 uM;uniform mat3 uL;varying vec3 vN;varying vec3 vC;" +
+      "void main(){vec3 p=uM*aP;gl_Position=vec4(p.xy,-p.z*.35,1.);vN=uL*aN;vC=aVertexColor;}",
+      "precision mediump float;varying vec3 vN;varying vec3 vC;" +
+      "void main(){vec3 n=normalize(vN);vec3 c=vC;" + LIGHT + "}");
+    if(!progCol) return null;
+    locCol = { prog:progCol,
+               aP:gl.getAttribLocation(progCol, "aP"),
+               aN:gl.getAttribLocation(progCol, "aN"),
+               aX:gl.getAttribLocation(progCol, "aVertexColor"), xSize:3,
+               uM:gl.getUniformLocation(progCol, "uM"),
+               uL:gl.getUniformLocation(progCol, "uL") };
+  }
 
   /* painter state — the tumble itself lives on the body (b.rx, b.ry) */
   const mM = new Float32Array(9), mL = new Float32Array(9);
   let dirty = true, dead = false;
   let dpr0 = 0, lastA = 1e9, lastRx = 1e9, lastRy = 1e9;
 
-  // shell-orange 1px stand-in until the embedded JPEG decodes (ms)
-  const tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE,
-                new Uint8Array([255, 77, 6]));
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  let texImg = null;
-  const img = new Image();
-  img.onload = () => { texImg = img; dirty = true; start(); };
-  img.src = MSH.tex;
+  function vbo(data){
+    const bo = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, bo);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    return bo;
+  }
+  const draws = batches.map(bt => {
+    const d = { loc:bt.uv ? locTex : locCol,
+                pos:vbo(bt.pos), nrm:vbo(bt.nrm), ext:vbo(bt.uv || bt.rgb),
+                ibo:gl.createBuffer(), n:bt.idx.length, tex:null, img:null,
+                zb:bt.zb || 0 };
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, d.ibo);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, bt.idx, gl.STATIC_DRAW);
+    if(bt.tex){
+      // 1px stand-in until the embedded JPEG decodes (ms)
+      d.tex = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, d.tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE,
+                    new Uint8Array(bt.fill));
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const img = new Image();
+      img.onload = () => { d.img = img; dirty = true; start(); };
+      img.src = bt.tex;
+    }
+    return d;
+  });
+  gl.enable(gl.DEPTH_TEST);
+  gl.clearColor(0, 0, 0, 0);
 
   el.addEventListener("webglcontextlost", e => {
     e.preventDefault();
-    dead = true;                      // degrade to the flat look
-    el.style.background = "#ff4d06";
-    el.style.borderRadius = Math.round(side * .16) + "px";
-    const bb = bodyByEl.get(el);      // a flat square has no depth: level the
-    if(bb){                           // pose and restore the face-on hull
-      bb.tumbles = false;
-      bb.rx = bb.ry = bb.wx = bb.wy = 0;
-      bb.poseCalm = true;
-      if(Math.abs(bb.hullW - bb.toyW) > .5) r1SetWidth(bb, bb.toyW);
-      wake(bb);
-      start();
-    }
+    dead = true;
+    if(opts.onLost) opts.onLost(el);   // each model knows its own way down
   });
 
   function m3yx(ry, rx, s, out){      // column-major s · RotY(ry) · RotX(rx)
@@ -1507,6 +1720,11 @@ function makeRabbitGL(side){
       m[j + 1] = s * x + c * y;
     }
   }
+  function bindAttr(loc, bo, size){
+    gl.bindBuffer(gl.ARRAY_BUFFER, bo);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, gl.FLOAT, false, 0, 0);
+  }
   function draw3d(t, b){
     if(dead) return;
     // repaint only when what the canvas shows would actually change
@@ -1518,52 +1736,127 @@ function makeRabbitGL(side){
       el.width = el.height = Math.max(2, Math.round(side * dpr));
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     }
-    if(texImg){                       // the real baseColor arrived: upload once
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, texImg);
-      gl.generateMipmap(gl.TEXTURE_2D);   // 512² is power-of-two, so this is legal
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-      texImg = null;
-    }
     m3yx(b.ry, b.rx, .985, mM);       // positions: the tumble — CSS spins the box
     m3yx(b.ry, b.rx, 1, mL);
     m3z(-b.a, mL);                    // normals: lights stay fixed on the page
-    gl.uniformMatrix3fv(uM, false, mM);
-    gl.uniformMatrix3fv(uL, false, mL);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    gl.drawElements(gl.TRIANGLES, nIdx, gl.UNSIGNED_SHORT, 0);
+    for(const d of draws){
+      const L = d.loc;
+      gl.useProgram(L.prog);
+      if(d.img){                      // the real baseColor arrived: upload once
+        gl.bindTexture(gl.TEXTURE_2D, d.tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, d.img);
+        if(!(d.img.width & (d.img.width - 1)) &&
+           !(d.img.height & (d.img.height - 1))){
+          // the 512² r1 skin mipmaps; the 235-wide wallpaper is NPOT
+          // and must stay LINEAR + CLAMP in WebGL1
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        }
+        d.img = null;
+      }
+      gl.uniformMatrix3fv(L.uM, false, mM);
+      gl.uniformMatrix3fv(L.uL, false, mL);
+      if(L.uZB) gl.uniform1f(L.uZB, d.zb);
+      bindAttr(L.aP, d.pos, 3);
+      bindAttr(L.aN, d.nrm, 3);
+      bindAttr(L.aX, d.ext, L.xSize);
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, d.ibo);
+      if(d.tex){ gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, d.tex); }
+      gl.drawElements(gl.TRIANGLES, d.n, gl.UNSIGNED_SHORT, 0);
+    }
     lastA = b.a; lastRx = b.rx; lastRy = b.ry;
     dirty = false;
   }
 
-  const rr = Math.round(side * .16);
-  return { el, w:side, h:side, cut:rr * .75, draw3d,
+  return { el, w:opts.w, h:opts.h, cut:opts.cut, boxW:side, boxH:side,
+           thick:opts.thick, draw3d,
            busy:bb => !dead && !bb.poseCalm };
+}
+
+function makeRabbitGL(side){
+  const MSH = window.R1_MESH;
+  if(!MSH || !MSH.pos || !MSH.nrm || !MSH.uv || !MSH.idx || !MSH.idx.length)
+    return null;
+  const rr = Math.round(side * .16);
+  return makeModelGL(
+    [{ pos:MSH.pos, nrm:MSH.nrm, uv:MSH.uv, idx:MSH.idx, tex:MSH.tex,
+       fill:[255, 77, 6] }],          // shell orange until the JPEG lands
+    side,
+    { w:side, h:side, cut:rr * .75, thick:R1_THICK,
+      onLost:el => {
+        el.style.background = "#ff4d06";   // degrade to the flat look
+        el.style.borderRadius = rr + "px";
+        const bb = bodyByEl.get(el);       // a flat square has no depth: level
+        if(bb){                            // the pose, restore the face-on hull
+          bb.tumbles = false;
+          bb.rx = bb.ry = bb.wx = bb.wy = 0;
+          bb.poseCalm = true;
+          if(Math.abs(bb.hullW - bb.toyW) > .5) r1SetWidth(bb, bb.toyW);
+          wake(bb);
+          start();
+        }
+      } });
+}
+
+/* the iPhone — vertex-colored body plus the textured OLED, straight
+   from iphone-mesh.js. Its hull is the phone slab, narrower than the
+   square canvas it draws on; its depth ratio comes from the bake
+   header. No mesh, no WebGL, or a lost context: it spawns nothing and
+   removes itself — there is no flat iPhone anymore. */
+function makeIphoneGL(side){
+  const M = window.IPHONE_MESH;
+  if(!M || !M.solid || !M.screen || !M.solid.pos || !M.solid.rgb ||
+     !M.solid.idx || !M.solid.idx.length || !M.screen.pos || !M.screen.uv ||
+     !M.screen.idx || !M.screen.idx.length)
+    return null;
+  // model dims 0.9747 × 2.0, drawn at the .985 margin on a square canvas
+  const h = Math.round(side * .985);
+  const w = Math.round(side * .985 * .4874);
+  return makeModelGL(
+    [{ pos:M.solid.pos, nrm:M.solid.nrm, rgb:M.solid.rgb, idx:M.solid.idx },
+     { pos:M.screen.pos, nrm:M.screen.nrm, uv:M.screen.uv, idx:M.screen.idx,
+       tex:M.screen.tex, fill:[10, 10, 12],     // near-black until the wallpaper lands
+       zb:.008 }],   // lift the OLED past its opaque-baked cover glass (Δz .0126)
+    side,
+    { w, h, cut:Math.round(w * .14), thick:M.thickness || .0886,
+      onLost:el => {
+        const bb = bodyByEl.get(el);       // no flat fallback: the phone bows out
+        if(bb) removeBody(bb); else el.remove();
+      } });
 }
 
 function spawnToy(which){
   if(!hullsBuilt) buildHulls();
   const F = fontPx();
   const cap = capHeightPx(F);
-  const side = Math.round(cap * 1.25);
-  const spec = makeRabbitGL(side) || makeRabbit(side);
-  const b = toyBody(spec.el, spec.w, spec.h, spec.cut);
+  let spec;
+  if(which === "iphone"){
+    spec = makeIphoneGL(Math.round(cap * IP_SIDE));
+    if(!spec) return;                      // no GL, no mesh: the pile gets no phone
+  } else {
+    const side = Math.round(cap * 1.25);
+    spec = makeRabbitGL(side) || makeRabbit(side);
+  }
+  const b = toyBody(spec.el, spec.w, spec.h, spec.cut, spec.boxW, spec.boxH);
   if(spec.draw3d){
     b.draw3d = spec.draw3d;
-    r1busy = () => spec.busy(b);
-    b.tumbles = true;                      // the 3D r1 carries real depth —
+    busy3D.push(() => spec.busy(b));       // sleep must ask this toy too
+    b.tumbles = true;                      // a 3D toy carries real depth —
+    b.thick3d = spec.thick;                // each model knows how deep it is
     b.wx = (Math.random() - .5) * 2;       // it arrives gently mid-tumble and
     b.wy = (Math.random() - .5) * 3;       // the landing kick does the rest
     b.poseCalm = false;
   }
   b.ch = which;
-  b.x = innerWidth * .35;
-  b.y = -150;
+  b.x = innerWidth * (which === "iphone" ? .65 : .35);
+  b.y = which === "iphone" ? -(b.rad + 40) : -150;   // the slab is tall: clear the ceiling
   b.vx = 0; b.vy = 0;
   b.a = (Math.random() - .5) * .5;
   b.va = (Math.random() - .5) * 1.8;       // a small tossed-in spin
   b.entering = true;                       // the ceiling looks away while it arrives
-  b.toneBase = 104;                        // the toy thunks, letters plink
-  b.toneDur = .13;
+  b.toneBase = which === "iphone" ? 132 : 104;   // toys thunk; glass a shade higher
+  b.toneDur = which === "iphone" ? .11 : .13;
   document.body.appendChild(spec.el);
   bodies.push(b);
   wake(b);
@@ -1571,7 +1864,7 @@ function spawnToy(which){
   start();
 }
 
-/* the toys arrive once, a beat after the letters have found the floor */
+/* the toys arrive once each, a beat after the letters have found the floor */
 function toyTimer(which, delay){
   setTimeout(() => {
     if(!spilled){ toyTimer(which, 600); return; }  // outwaits a collapsed viewport
@@ -1579,13 +1872,14 @@ function toyTimer(which, delay){
   }, delay);
 }
 toyTimer("r1", 2600);
+toyTimer("iphone", 3200);
 
 /* ---- resize: seats move; nothing may leave the viewport ---- */
 addEventListener("resize", () => {
   if(mode !== "seated") refreshGeometry();   // the headline size tracks vw/vh
   const W = innerWidth, H = innerHeight;
   for(const b of bodies){
-    if(b.kind === "letter" && mode === "seated") continue;
+    if(b.kind !== "toy" && mode === "seated") continue;   // seated UI reflows itself
     b.x = Math.min(Math.max(b.x, 2), W - 2);
     if(!b.entering) b.y = Math.min(b.y, H - 2);
   }
