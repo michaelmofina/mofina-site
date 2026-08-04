@@ -18,8 +18,22 @@
    ============================================================ */
 
 @font-face{
-  font-family:"Cabinet Grotesk";
-  src:url("../assets/fonts/CabinetGrotesk-Medium.woff2") format("woff2");
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Book.woff2") format("woff2");
+  font-weight:350;
+  font-style:normal;
+  font-display:swap;
+}
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Regular.woff2") format("woff2");
+  font-weight:400;
+  font-style:normal;
+  font-display:swap;
+}
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Medium.woff2") format("woff2");
   font-weight:500;
   font-style:normal;
   font-display:swap;
@@ -36,8 +50,8 @@
 html{ background:var(--paper); }
 
 body{
-  font-family:"Cabinet Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  font-weight:500;
+  font-family:"KMR Apparat",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-weight:500;              /* try ?w=350 (Book) or ?w=400 (Regular) */
   font-size:.95rem;
   line-height:1.6;
   color:rgba(var(--ink),.85);
@@ -306,7 +320,14 @@ function plink(b, speed){
    origin + baseline so it can be scaled to whatever size the
    headline happens to render at.
    ================================================================ */
-const FONT_STACK = '"Cabinet Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+const FONT_STACK = '"KMR Apparat",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+
+/* weight A/B: ?w=350|400|500 flips the whole page (and the glyph hulls) */
+const FONT_WT = (() => {
+  const w = new URLSearchParams(location.search).get("w");
+  return ["350", "400", "500"].includes(w) ? w : "500";
+})();
+if(FONT_WT !== "500") document.body.style.fontWeight = FONT_WT;
 const UNIQUE = [...new Set("michaelmofina")];
 const HCW = 192, HCH = 208, HPX = 28, HBY = 156;   // canvas, pen x, baseline y
 const hullCanvas = document.createElement("canvas");
@@ -375,7 +396,7 @@ function signedArea(v){
 
 function extractHull(ch){
   hctx.clearRect(0, 0, HCW, HCH);
-  hctx.font = "500 " + HULL_PX + "px " + FONT_STACK;
+  hctx.font = FONT_WT + " " + HULL_PX + "px " + FONT_STACK;
   hctx.textBaseline = "alphabetic";
   hctx.fillStyle = "#000";
   hctx.fillText(ch, HPX, HBY);
@@ -398,7 +419,7 @@ function extractHull(ch){
 }
 
 function buildHulls(){
-  hctx.font = "500 " + HULL_PX + "px " + FONT_STACK;
+  hctx.font = FONT_WT + " " + HULL_PX + "px " + FONT_STACK;
   const m = hctx.measureText("mh");
   const asc  = (m.fontBoundingBoxAscent  || HULL_PX * .76) / HULL_PX;
   const desc = (m.fontBoundingBoxDescent || HULL_PX * .24) / HULL_PX;
