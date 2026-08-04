@@ -84,6 +84,21 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
   text-decoration-color:rgba(var(--ink),.18); text-underline-offset:.22em;
   transition:color .2s ease, text-decoration-color .2s ease; }
 .corner .links a:hover{ color:var(--accent); text-decoration-color:var(--accent); }
+.shake{
+  margin-top:.65rem;
+  font:inherit;
+  font-size:.85rem;
+  color:rgba(var(--ink),.7);
+  background:none;
+  border:1px solid rgba(var(--ink),.25);
+  border-radius:999px;
+  padding:.3rem .85rem;
+  cursor:pointer;
+  transition:color .2s ease, border-color .2s ease, opacity .4s ease;
+}
+.shake:hover{ color:var(--accent); border-color:var(--accent); }
+.shake:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; }
+.shake.gone{ opacity:0; pointer-events:none; }
 .corner .at a{ color:var(--accent); text-decoration:none; }
 .corner .at a:hover{ text-decoration:underline; text-underline-offset:.18em; }
 
@@ -172,6 +187,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
         <a href="mailto:info@michaelmofina.com">Email</a> ·
         <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
       </p>
+      <button class="shake" id="shake" hidden>Shake it up</button>
     </div>
     <p class="at">Currently at <a href="https://todoist.com">Todoist</a>.</p>
   </div>
@@ -580,7 +596,6 @@ function onDown(e){
     goLive();
   }
   if(!el) return;
-  armTilt();      // ask for motion only once someone actually plays (still inside the gesture, per iOS)
   const b = bodyByEl.get(el);
   if(!b) return;
   if(mode === "homing" && b.kind === "letter") return;  // homing letters are spoken for
@@ -698,14 +713,30 @@ function armTilt(){
   if(tiltArmed || !hasTouch || typeof DeviceOrientationEvent === "undefined")
     return;
   tiltArmed = true;
+  const done = ok => {
+    if(ok) addEventListener("deviceorientation", onTilt);
+    if(shakeBtn){                    // the button's job is over either way
+      shakeBtn.classList.add("gone");
+      shakeBtn.disabled = true;
+      setTimeout(() => { shakeBtn.hidden = true; }, 400);
+    }
+  };
   const ask = DeviceOrientationEvent.requestPermission;
   if(typeof ask === "function"){
-    ask.call(DeviceOrientationEvent).then(state => {
-      if(state === "granted") addEventListener("deviceorientation", onTilt);
-    }).catch(() => {});              // denied or blocked: gravity stays down
+    ask.call(DeviceOrientationEvent)
+      .then(state => done(state === "granted"))
+      .catch(() => done(false));     // denied or frame-blocked: gravity stays down
   } else {
-    addEventListener("deviceorientation", onTilt);
+    done(true);
   }
+}
+
+/* "Shake it up" — motion is opt-in via an explicit tap, never a surprise
+   permission prompt. The button only exists where tilt could work. */
+const shakeBtn = document.getElementById("shake");
+if(shakeBtn && hasTouch && typeof DeviceOrientationEvent !== "undefined"){
+  shakeBtn.hidden = false;
+  shakeBtn.addEventListener("click", armTilt);
 }
 
 /* ---- home: the name puts itself back together (letters only) ---- */
