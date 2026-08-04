@@ -79,11 +79,6 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
   z-index:3;
 }
 .corner .role{ color:rgba(var(--ink),.6); }
-.corner .links{ margin-top:.15rem; font-size:.85rem; }
-.corner .links a{ color:rgba(var(--ink),.5); text-decoration:underline;
-  text-decoration-color:rgba(var(--ink),.18); text-underline-offset:.22em;
-  transition:color .2s ease, text-decoration-color .2s ease; }
-.corner .links a:hover{ color:var(--accent); text-decoration-color:var(--accent); }
 .shake{
   margin-top:.65rem;
   font:inherit;
@@ -168,8 +163,6 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
 }
 
-.fin{ position:absolute; right:1.5rem; bottom:1.25rem; margin:0;
-  font-size:.8rem; color:rgba(var(--ink),.35); z-index:3; }
 
 @media (prefers-reduced-motion: reduce){
   *{ animation:none !important; transition:none !important; }
@@ -183,15 +176,10 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   <div class="corner fade" style="--d:0ms">
     <div>
       <p class="role">Product Designer</p>
-      <p class="links">
-        <a href="mailto:info@michaelmofina.com">Email</a> ·
-        <a href="mailto:info@michaelmofina.com?subject=Case%20studies">Case studies, on request</a>
-      </p>
       <button class="shake" id="shake" hidden>Shake it up</button>
     </div>
     <p class="at">Currently at <a href="https://todoist.com">Todoist</a>.</p>
   </div>
-  <p class="fin" aria-hidden="true">fin.</p>
 
   <h1 class="big fade" id="name" style="--d:80ms">
     <span class="sr-only">michael mofina</span><span aria-hidden="true" id="visname"><span class="word">michael</span><span class="word">mofina</span></span>
