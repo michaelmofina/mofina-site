@@ -46,7 +46,7 @@
 :root{
   --paper:#fdfdfb;
   --ink:22,22,22;
-  --accent:#e44332;
+  --accent:#d96400;
   color-scheme:light dark;
 }
 /* the page follows the system — no toggle. Warm near-black, warm
@@ -55,14 +55,14 @@
   :root{
     --paper:#141210;
     --ink:241,238,232;
-    --accent:#ef5648;
+    --accent:#ffc53d;
   }
 }
 /* hosted wrappers (e.g. the Claude artifact viewer) stamp their theme on
    the root — honor it in both directions so their toggle wins there;
    the real site never has data-theme and stays on the media query */
-:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:#ef5648; }
-:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:#e44332; }
+:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:#ffc53d; }
+:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:#d96400; }
 
 *{ margin:0; padding:0; box-sizing:border-box; }
 
@@ -235,11 +235,9 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 .menu-btn{
   font:inherit; font-size:.95rem; color:rgba(var(--ink),.85);
   background:none; border:0; padding:0; cursor:pointer;
-  text-decoration:underline; text-decoration-color:rgba(var(--ink),.18);
-  text-underline-offset:.22em;
-  transition:color .2s ease, text-decoration-color .2s ease;
+  transition:color .2s ease;
 }
-.menu-btn:hover{ color:var(--accent); text-decoration-color:var(--accent); }
+.menu-btn:hover{ color:var(--accent); }
 .menu[hidden]{ display:none; }   /* hidden must beat display:flex */
 .menu{
   position:fixed; inset:0; z-index:60;
@@ -251,10 +249,11 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 .menu-nav{ margin:auto 0; display:flex; flex-direction:column; gap:1.2rem; }
 .menu-nav a{
   font-size:clamp(2.2rem,7vw,4rem); line-height:1.1; letter-spacing:-.02em;
+  font-weight:350;                 /* Book at rest… */
   color:rgba(var(--ink),.87); text-decoration:none; width:fit-content;
   transition:color .2s ease;
 }
-.menu-nav a:hover{ color:var(--accent); }
+.menu-nav a:hover{ font-weight:500; color:var(--accent); }  /* …Medium under the cursor */
 .menu-nav a[aria-current="page"]{ color:rgba(var(--ink),.4); }
 .menu.open .menu-nav a{ animation:fadeUp .45s cubic-bezier(.22,.61,.36,1) both; }
 .menu.open .menu-nav a:nth-child(2){ animation-delay:60ms; }
