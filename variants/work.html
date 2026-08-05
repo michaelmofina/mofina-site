@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work · Michael Mofina</title>
+<meta name="description" content="Selected work — Michael Mofina, product designer at Todoist.">
+<meta name="theme-color" content="#fdfdfb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
+<style>
+/* ============================================================
+   michael mofina — work
+   The quiet room: the same materials as the front door, no physics.
+   ============================================================ */
+
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Book.woff2") format("woff2");
+  font-weight:350; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Regular.woff2") format("woff2");
+  font-weight:400; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Medium.woff2") format("woff2");
+  font-weight:500; font-style:normal; font-display:swap;
+}
+
+:root{
+  --paper:#fdfdfb;
+  --ink:22,22,22;
+  --accent:#e44332;
+  color-scheme:light dark;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --paper:#141210; --ink:241,238,232; --accent:#ef5648; }
+}
+:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:#ef5648; }
+:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:#e44332; }
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+html, body{ background:var(--paper); }
+body{
+  font-family:"KMR Apparat",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-weight:500;
+  font-size:.95rem;
+  line-height:1.6;
+  color:rgba(var(--ink),.85);
+}
+::selection{ background:var(--accent); color:var(--paper); }
+a:focus-visible, button:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; border-radius:2px; }
+
+.fade{
+  animation:fadeUp .55s cubic-bezier(.22,.61,.36,1) both;
+  animation-delay:var(--d,0ms);
+}
+@keyframes fadeUp{
+  from{ opacity:0; transform:translateY(10px); }
+  to{ opacity:1; transform:none; }
+}
+
+.corner{
+  position:fixed;
+  top:1.75rem; left:1.5rem; right:1.5rem;
+  display:flex; justify-content:space-between; align-items:baseline;
+  flex-wrap:wrap; gap:.2rem 1.5rem;
+  z-index:3;
+  background:var(--paper);
+}
+.who{ color:rgba(var(--ink),.6); }
+.who a{ color:var(--accent); text-decoration:none; }
+.who a:hover{ text-decoration:underline; text-underline-offset:.18em; }
+.menu-btn{
+  font:inherit; font-size:.95rem; color:rgba(var(--ink),.85);
+  background:none; border:0; padding:0; cursor:pointer;
+  text-decoration:underline; text-decoration-color:rgba(var(--ink),.18);
+  text-underline-offset:.22em;
+  transition:color .2s ease, text-decoration-color .2s ease;
+}
+.menu-btn:hover{ color:var(--accent); text-decoration-color:var(--accent); }
+
+.page{
+  max-width:46rem;
+  margin:0 auto;
+  padding:8.5rem 1.5rem 5rem;
+}
+h1{
+  font-size:clamp(2.2rem,7vw,4rem);
+  line-height:1.05;
+  letter-spacing:-.02em;
+  font-weight:500;
+  color:rgba(var(--ink),.87);
+  margin-bottom:3.5rem;
+}
+
+.group{
+  display:grid;
+  grid-template-columns:10rem 1fr;
+  gap:.3rem 2rem;
+  align-items:baseline;
+}
+.group + .group{ margin-top:1.6rem; }
+.org{ font-size:.95rem; font-weight:500; color:rgba(var(--ink),.85); }
+.row{
+  display:flex; align-items:baseline; gap:.75rem;
+  transition:opacity .22s ease, color .22s ease;
+}
+.row + .row{ margin-top:.3rem; }
+.year{
+  margin-left:auto;
+  font-variant-numeric:tabular-nums;
+  color:rgba(var(--ink),.45);
+  white-space:nowrap;
+}
+.joke{ font-size:.8rem; color:rgba(var(--ink),.6); opacity:0; transition:opacity .3s ease .05s; }
+@media (hover:hover){
+  .index:hover .row{ opacity:.4; }
+  .index:hover .row:hover{ opacity:1; color:var(--tint,rgba(var(--ink),.85)); }
+  .index:hover .joke-row{ opacity:1; }
+  .group:hover .joke{ opacity:1; }
+}
+
+.note{
+  margin-top:4rem;
+  font-size:.85rem;
+  color:rgba(var(--ink),.45);
+  max-width:36rem;
+}
+
+.menu[hidden]{ display:none; }   /* hidden must beat display:flex */
+.menu{
+  position:fixed; inset:0; z-index:60;
+  background:var(--paper);
+  display:flex; flex-direction:column;
+  padding:1.75rem 1.5rem;
+}
+.menu-close{ align-self:flex-end; }
+.menu-nav{ margin:auto 0; display:flex; flex-direction:column; gap:1.2rem; }
+.menu-nav a{
+  font-size:clamp(2.2rem,7vw,4rem); line-height:1.1; letter-spacing:-.02em;
+  color:rgba(var(--ink),.87); text-decoration:none; width:fit-content;
+  transition:color .2s ease;
+}
+.menu-nav a:hover{ color:var(--accent); }
+.menu-nav a[aria-current="page"]{ color:rgba(var(--ink),.4); }
+.menu.open .menu-nav a{ animation:fadeUp .45s cubic-bezier(.22,.61,.36,1) both; }
+.menu.open .menu-nav a:nth-child(2){ animation-delay:60ms; }
+.menu.open .menu-nav a:nth-child(3){ animation-delay:120ms; }
+
+@media (max-width:640px){
+  .group{ grid-template-columns:1fr; gap:.35rem 0; }
+  .org{ margin-bottom:.15rem; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *{ animation:none !important; transition:none !important; }
+  .fade{ opacity:1; transform:none; }
+}
+</style>
+</head>
+<body>
+
+<header class="corner fade" style="--d:0ms">
+  <p class="who">Product Designer at <a href="https://todoist.com">Todoist</a></p>
+  <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="menu">Menu</button>
+</header>
+
+<main class="page">
+  <h1 class="fade" style="--d:60ms">Work</h1>
+
+  <div class="index fade" style="--d:140ms">
+
+    <section class="group" style="--tint:#e44332">
+      <h2 class="org">Todoist</h2>
+      <div>
+        <div class="row"><span>Ramble — voice capture</span><span class="year">2025–26</span></div>
+        <div class="row"><span>Automations platform</span><span class="year">2025–26</span></div>
+        <div class="row"><span>Cross-platform design</span><span class="year">2026</span></div>
+        <div class="row"><span>Shipped web PRs</span><span class="year">2026</span></div>
+      </div>
+    </section>
+
+    <section class="group" style="--tint:#ff4d06">
+      <h2 class="org">rabbit</h2>
+      <div>
+        <div class="row"><span>r1 — from wheel to touch</span><span class="year">2024</span></div>
+        <div class="row"><span>teach mode</span><span class="year">2024</span></div>
+        <div class="row"><span>LAM playground</span><span class="year">2025</span></div>
+      </div>
+    </section>
+
+    <section class="group" style="--tint:#6e6e73">
+      <h2 class="org">Apple via Critical Mass</h2>
+      <div>
+        <div class="row"><span>Marcom design</span><span class="year">2021–24</span></div>
+        <div class="row joke-row" aria-hidden="true"><span class="joke">Really good designs. Trust me.</span></div>
+      </div>
+    </section>
+
+    <section class="group" style="--tint:#197a7a">
+      <h2 class="org">Independent</h2>
+      <div>
+        <div class="row"><span>EmergConnect — healthcare</span><span class="year">2021–</span></div>
+        <div class="row"><span>Projected interfaces</span><span class="year">2023</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <p class="note fade" style="--d:220ms">Project pages are coming — for now, the index. Case studies on request via <a href="mailto:info@michaelmofina.com" style="color:var(--accent);text-decoration:none">email</a>.</p>
+</main>
+
+<div class="menu" id="menu" hidden role="dialog" aria-modal="true" aria-label="Site menu">
+  <button class="menu-btn menu-close" id="menuClose">Close</button>
+  <nav class="menu-nav">
+    <a href="letters.html">Home</a>
+    <a href="work.html" aria-current="page">Work</a>
+    <a href="mailto:info@michaelmofina.com">Get in touch</a>
+  </nav>
+</div>
+
+<script>
+(() => {
+"use strict";
+const menu = document.getElementById("menu");
+const menuBtn = document.getElementById("menuBtn");
+const menuClose = document.getElementById("menuClose");
+function setMenu(open){
+  menu.hidden = !open;
+  menu.classList.toggle("open", open);
+  menuBtn.setAttribute("aria-expanded", String(open));
+  const fc = open ? (menu.querySelector("a") || menuClose) : menuBtn;
+  if(fc && fc.focus) fc.focus();
+}
+menuBtn.addEventListener("click", () => setMenu(true));
+menuClose.addEventListener("click", () => setMenu(false));
+addEventListener("keydown", e => {
+  if(e.key === "Escape" && !menu.hidden) setMenu(false);
+});
+})();
+</script>
+
+</body>
+</html>
