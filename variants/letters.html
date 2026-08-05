@@ -58,10 +58,15 @@
     --accent:#ef5648;
   }
 }
+/* hosted wrappers (e.g. the Claude artifact viewer) stamp their theme on
+   the root — honor it in both directions so their toggle wins there;
+   the real site never has data-theme and stays on the media query */
+:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:#ef5648; }
+:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:#e44332; }
 
 *{ margin:0; padding:0; box-sizing:border-box; }
 
-html{ background:var(--paper); }
+html, body{ background:var(--paper); }  /* body too: wrapper resets must not paint over us */
 
 body{
   font-family:"KMR Apparat",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
