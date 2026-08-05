@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Michael Mofina — Product Designer</title>
 <meta name="description" content="Michael Mofina — product designer at Todoist.">
-<meta name="theme-color" content="#fdfdfb">
+<meta name="theme-color" content="#fdfdfb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
 <style>
 /* ============================================================
    michael mofina — "spill" variant
@@ -46,6 +47,16 @@
   --paper:#fdfdfb;
   --ink:22,22,22;
   --accent:#e44332;
+  color-scheme:light dark;
+}
+/* the page follows the system — no toggle. Warm near-black, warm
+   off-white ink, the red lifted a step so it carries on the dark ground */
+@media (prefers-color-scheme: dark){
+  :root{
+    --paper:#141210;
+    --ink:241,238,232;
+    --accent:#ef5648;
+  }
 }
 
 *{ margin:0; padding:0; box-sizing:border-box; }
