@@ -42,6 +42,26 @@
   font-style:normal;
   font-display:swap;
 }
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Light.woff2") format("woff2");
+  font-weight:300; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Bold.woff2") format("woff2");
+  font-weight:700; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Heavy.woff2") format("woff2");
+  font-weight:800; font-style:normal; font-display:swap;
+}
+@font-face{
+  font-family:"KMR Apparat";
+  src:url("../assets/fonts/KMR-Apparat-Black.woff2") format("woff2");
+  font-weight:900; font-style:normal; font-display:swap;
+}
 
 :root{
   --paper:#fdfdfb;
@@ -159,7 +179,7 @@ a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent)
 
 /* the name — one line, sized to fit with a little bleed-proofing */
 .big{
-  font-weight:400;
+  font-weight:var(--w-name,400);   /* the weight the name has always rendered at */
   font-size:min(11vw,16vh);
   line-height:1;
   letter-spacing:-.03em;
@@ -229,11 +249,12 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
 
 /* ---- static wayfinding + the menu ---- */
-.who{ margin:0; color:rgba(var(--ink),.6); }
+.who{ margin:0; color:rgba(var(--ink),.6); font-weight:var(--w-top,500); }
 .who a{ color:var(--accent); text-decoration:none; }
 .who a:hover{ text-decoration:underline; text-underline-offset:.18em; }
 .menu-btn{
   font:inherit; font-size:.95rem; color:rgba(var(--ink),.85);
+  font-weight:var(--w-top,500);
   background:none; border:0; padding:0; cursor:pointer;
   transition:color .2s ease;
 }
@@ -249,15 +270,30 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 .menu-nav{ margin:auto 0; display:flex; flex-direction:column; gap:1.2rem; }
 .menu-nav a{
   font-size:clamp(2.2rem,7vw,4rem); line-height:1.1; letter-spacing:-.02em;
-  font-weight:350;                 /* Book at rest… */
+  font-weight:var(--w-menu,350);   /* Book at rest… */
   color:rgba(var(--ink),.87); text-decoration:none; width:fit-content;
   transition:color .2s ease;
 }
-.menu-nav a:hover{ font-weight:500; color:var(--accent); }  /* …Medium under the cursor */
+.menu-nav a:hover{ font-weight:var(--w-menu-hover,500); color:var(--accent); }  /* …Medium under the cursor */
 .menu-nav a[aria-current="page"]{ color:rgba(var(--ink),.4); }
 .menu.open .menu-nav a{ animation:fadeUp .45s cubic-bezier(.22,.61,.36,1) both; }
 .menu.open .menu-nav a:nth-child(2){ animation-delay:60ms; }
 .menu.open .menu-nav a:nth-child(3){ animation-delay:120ms; }
+
+
+/* ---- dev weight lab: only exists when the URL says #dev ---- */
+.devpanel[hidden]{ display:none; }
+.devpanel{
+  position:fixed; left:1rem; bottom:1rem; z-index:80;
+  display:flex; flex-direction:column; gap:.35rem;
+  background:var(--paper); border:1px solid rgba(var(--ink),.25);
+  border-radius:10px; padding:.6rem .8rem;
+  font-size:.72rem; color:rgba(var(--ink),.7);
+}
+.devpanel label{ display:flex; align-items:center; gap:.5rem; }
+.devpanel label span:first-child{ width:2.6rem; }
+.devpanel input{ width:130px; accent-color:var(--accent); }
+.devpanel output{ width:2.2rem; text-align:right; font-variant-numeric:tabular-nums; }
 
 @media (prefers-reduced-motion: reduce){
   *{ animation:none !important; transition:none !important; }
@@ -297,6 +333,13 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
     <a href="mailto:info@michaelmofina.com">Get in touch</a>
   </nav>
 </div>
+
+<div class="devpanel" id="devpanel" hidden aria-hidden="true">
+  <label><span>name</span><input type="range" id="devName" min="0" max="6" step="1" value="2"><output id="devNameV">400</output></label>
+  <label><span>menu</span><input type="range" id="devMenu" min="0" max="6" step="1" value="1"><output id="devMenuV">350</output></label>
+  <label><span>top</span><input type="range" id="devTop" min="0" max="6" step="1" value="3"><output id="devTopV">500</output></label>
+</div>
+
 
 
 <script src="r1-mesh.js"></script>
@@ -346,6 +389,32 @@ addEventListener("keydown", e => {
     e.stopImmediatePropagation();
   }
 }, true);
+
+
+/* ---- dev weight lab (URL contains "dev"): three sliders across the
+   seven real Apparat cuts. The name slider re-traces the glyph hulls
+   so heavier letters really are heavier objects. ---- */
+const devPanel = document.getElementById("devpanel");
+if(devPanel && /dev/.test(location.search + location.hash)){
+  devPanel.hidden = false;
+  const DEV_W = [300, 350, 400, 500, 700, 800, 900];
+  const wire = (id, cssVar, onSet) => {
+    const inp = document.getElementById(id);
+    const out = document.getElementById(id + "V");
+    inp.addEventListener("input", () => {
+      const w = DEV_W[+inp.value];
+      out.textContent = w;
+      document.documentElement.style.setProperty(cssVar, w);
+      if(onSet) onSet(w);
+    });
+  };
+  wire("devName", "--w-name", w => {
+    FONT_WT = String(w);
+    dispatchEvent(new Event("resize"));   // re-measure seats, re-trace hulls
+  });
+  wire("devMenu", "--w-menu");
+  wire("devTop",  "--w-top");
+}
 
 if(reduced) return;   // the name simply stays a name; no toys, no handlers
 
@@ -452,9 +521,9 @@ function plink(b, speed){
 const FONT_STACK = '"KMR Apparat",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
 
 /* weight A/B: ?w=350|400|500 flips the whole page (and the glyph hulls) */
-const FONT_WT = (() => {
+let FONT_WT = (() => {
   const w = new URLSearchParams(location.search).get("w");
-  return ["350", "400", "500"].includes(w) ? w : "500";
+  return ["350", "400", "500"].includes(w) ? w : "400";
 })();
 if(FONT_WT !== "500") document.body.style.fontWeight = FONT_WT;
 const UNIQUE = [...new Set("michaelmofina")];
