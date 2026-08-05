@@ -104,6 +104,7 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
   display:inline-block;
   font:inherit;
   font-size:.85rem;
+  letter-spacing:.01em;          /* small text breathes with a touch of tracking */
   color:rgba(var(--ink),.7);
   background:var(--paper);       /* an opaque chip once it flies over letters */
   border:1px solid rgba(var(--ink),.25);
@@ -113,6 +114,11 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
   cursor:pointer;
   transition:color .2s ease, border-color .2s ease, opacity .4s ease;
 }
+/* press feedback lands on pointer-down, not on release (seated only —
+   live pills belong to the physics and its inline transforms) */
+.pill:not(.live){ transition:color .2s ease, border-color .2s ease,
+  opacity .4s ease, transform .1s ease-out; }
+.pill:not(.live):active{ transform:scale(.96); }
 span.pill{ cursor:default; }       /* #pd answers to nothing */
 .pill[hidden]{ display:none; }     /* inline-block must not defeat hidden */
 a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent); }
@@ -298,7 +304,7 @@ const TOY_DENS   = 1.4;    // toys are denser than letters
 const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const SND_BODY   = 200;    // letter-letter impact speed that earns a plink
 const SND_WALL   = 140;    // wall/floor impact speed that earns one
-const TAP_PX     = 6;      // pointer travel under this…
+const TAP_PX     = 8;      // pointer travel under this…
 const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
 const SQUASH_MS  = 260;    // #pd's tap reply: one squash-and-recover this long
 const IP_SIDE    = 1.52;   // iPhone canvas ÷ cap height (≈1.5× cap tall after margin)
@@ -317,6 +323,7 @@ const R1_HULL_DW    = 2;     // px of width change that justifies re-cutting the
 let mode = "seated";    // seated | live | homing   (letters + pills — toys never seat)
 let raf = 0, lastT = 0;
 let held = null, pointerId = null;
+let grabDX = 0, grabDY = 0;   // the grip point: things hang from where you grabbed them
 let tap = null;         // pill press bookkeeping — a short, still press activates
 let squashUntil = 0;    // while > now, #pd is mid-squash and the loop must run
 let spilled = false;
@@ -695,11 +702,24 @@ function onDown(e){
   if(!el) return;
   const b = bodyByEl.get(el);
   if(!b) return;
-  if(mode === "homing" && b.kind !== "toy") return;  // homing bodies are spoken for
+  if(mode === "homing" && b.kind !== "toy"){
+    // snatching a body mid-homecoming cancels the reassembly — everything
+    // resumes live physics from exactly where it is right now
+    mode = "live";
+    for(const o of bodies){
+      if(o.kind === "toy") continue;
+      o.homed = false;
+      o.dropAt = 0;
+    }
+  }
   ensureAudio();
   if(b.kind !== "toy" && mode === "live") b.dropAt = 0;  // a grabbed body falls now
   held = b;
   held.el.classList.add("held");
+  // respect the grip: the body hangs from where the finger caught it,
+  // never snapping its centre to the pointer
+  grabDX = b.x - e.clientX;
+  grabDY = b.y - e.clientY;
   // a press on a pill might be a tap: remember where and when it began
   tap = b.kind === "pill"
     ? { b, t:performance.now(), x:e.clientX, y:e.clientY, path:0 }
@@ -707,7 +727,7 @@ function onDown(e){
   pointerId = e.pointerId;
   samples.length = 0;
   pushSample(e);
-  target.x = e.clientX; target.y = e.clientY;
+  target.x = e.clientX + grabDX; target.y = e.clientY + grabDY;
   document.body.classList.add("grabbing");
   wakeAll();                                   // a hand in the pile disturbs everything
   addEventListener("pointermove", onMove);
@@ -718,7 +738,7 @@ function onDown(e){
 }
 function onMove(e){
   if(e.pointerId !== pointerId) return;
-  target.x = e.clientX; target.y = e.clientY;
+  target.x = e.clientX + grabDX; target.y = e.clientY + grabDY;
   pushSample(e);
   if(tap){                                   // total travel, not net displacement
     tap.path += Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
