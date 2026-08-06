@@ -13,9 +13,10 @@
    The name appears mid-page, holds just long enough to be read,
    then every letter falls. Each one is a rigid body whose collider
    is traced from its own glyph outline, so letters land on their
-   ink, tip over their stems, and stack like real objects. The four
-   UI pills fall with them — and still work: a clean tap activates,
-   anything longer is a drag. A rabbit r1 drops in after the first
+   ink, tip over their stems, and stack like real objects. The two
+   pills under the name fall with them — and still work: a clean tap
+   activates, anything longer is a drag; the corner wayfinding stays
+   put. A rabbit r1 drops in after the first
    spill, an iPhone follows a beat later, and neither ever leaves.
    One viewport, no scroll. Escape or double-click puts the name
    (and the pills) back together.
@@ -90,7 +91,7 @@ html, body{ background:var(--paper); }  /* body too: wrapper resets must not pai
 
 body{
   font-family:"KMR Apparat",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  font-weight:500;              /* try ?w=350 (Book) or ?w=400 (Regular) */
+  font-weight:400;
   font-size:.95rem;
   line-height:1.6;
   color:rgba(var(--ink),.85);
@@ -134,8 +135,8 @@ a:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; bor
      stacking context of its own once they go live */
 }
 
-/* the page's UI text is four pills — real links and buttons that
-   later fall with the letters and still work */
+/* the row UI is two pills — a real button and link that later fall
+   with the letters and still work */
 .pill{
   display:inline-block;
   font:inherit;
@@ -391,11 +392,12 @@ addEventListener("keydown", e => {
 }, true);
 
 
-/* ---- dev weight lab (URL contains "dev"): three sliders across the
-   seven real Apparat cuts. The name slider re-traces the glyph hulls
-   so heavier letters really are heavier objects. ---- */
+/* ---- dev weight lab (URL hash is exactly #dev — a stray "dev" in a
+   query string like ?ref=devto must NOT open it): three sliders across
+   the seven real Apparat cuts. The name slider re-traces the glyph
+   hulls so heavier letters really are heavier objects. ---- */
 const devPanel = document.getElementById("devpanel");
-if(devPanel && /dev/.test(location.search + location.hash)){
+if(devPanel && location.hash === "#dev"){
   devPanel.hidden = false;
   const DEV_W = [300, 350, 400, 500, 700, 800, 900];
   const wire = (id, cssVar, onSet) => {
@@ -421,7 +423,7 @@ if(devPanel && /dev/.test(location.search + location.hash)){
 if(reduced) return;   // the name simply stays a name; no toys, no handlers
 
 /* ================================================================
-   Physics — 13 rigid letters (plus four pills and two toys, later)
+   Physics — 13 rigid letters (plus two pills and two toys, later)
    whose colliders are convex hulls traced from the glyphs themselves
    or cut as rounded slabs. SAT contacts, impulse solver with full
    rotational terms, friction, sleep.
@@ -429,13 +431,22 @@ if(reduced) return;   // the name simply stays a name; no toys, no handlers
 
 /* ---- every physics tunable lives in this block ---- */
 const G          = 2000;   // gravity, px/s²
-const REST       = .35;    // restitution — a thud with a little life in it
-const REST_MIN   = 110;    // impacts slower than this don't bounce (px/s)
+const REST_PAPER = .12;    // letters + pills thud like cut card stock
+const REST_TOY   = .22;    // the toys land with a touch more life
+const REST_MIN   = 160;    // impacts slower than this never bounce (px/s)
+const REST_AIR   = .12;    // …and only bodies airborne at least this long (s)
+                           // may bounce — grounded bodies re-crossing the
+                           // speed gate on injected gravity was pure jitter
 const MU         = .4;     // Coulomb-ish friction coefficient
 const BAUM       = .2;     // position-only correction per pass (velocities never see it)
+const POS_CORR   = 1;      // px cap on that correction, per contact per pass —
+                           // a tunneled-in-deep pair must be walked apart, not
+                           // ejected: an uncapped 20px overlap left in one
+                           // frame-teleport, fell back under gravity, and
+                           // pumped the pile like a piston, forever
 const SLOP       = .5;     // px of overlap we quietly allow
 const VEL_ITERS  = 6;      // velocity solver passes
-const POS_ITERS  = 4;      // position solver passes
+const POS_ITERS  = 6;      // position solver passes — wedged pairs must converge
 const MAXV       = 3400;   // fling speed cap, px/s
 const LIN_DAMP   = .04;    // faint air drag, 1/s
 const ANG_DAMP   = .35;    // faint spin drag, 1/s
@@ -443,12 +454,87 @@ const SLEEP_LIN  = 9;      // px/s — under this a body counts as still
 const SLEEP_ANG  = .10;    // rad/s — same idea for spin
 const SLEEP_DX   = 1.5;    // px — or: barely drifted from where it settled
 const SLEEP_DA   = .03;    // rad — same idea for wobble
-const SLEEP_T    = .35;    // seconds of stillness before a body sleeps
+const SLEEP_T    = .35;    // seconds of stillness before a body may sleep
+                           // (it then waits for its whole contact island)
+const SLEEP_MV   = 2;      // px a body may move in the very frame it sleeps —
+                           // a position-solver jump and the freeze must never
+                           // share a frame (split-impulse hides jumps from
+                           // every velocity gate)
+const SLEEP_WT   = .7;     // seconds inside the drift window that also count as
+const WIN_DX     = 3;      //   settled: a decaying rock that stays within this
+const WIN_DA     = .12;    //   box (px, rad) of one spot, touching, slower than
+const WIN_V      = 100;    //   these (px/s, rad/s), sleeps even though it never
+const WIN_A      = 1.5;    //   passes the instantaneous stillness gates…
+const WIN_STOP   = 30;     //   …but only at an instant it moves slower than
+                           //   this, so the freeze itself is invisible
 const SETTLE_ANG = 6;      // extra spin damping while slow + touching, 1/s
 const SETTLE_LIN = 2;      // extra slide damping while slow + touching, 1/s
+const SETTLE_V   = 80;     // how slow "slow + touching" is, px/s
+const SETTLE_1PT = 3;      // spin-damping multiplier while balanced on a point
+const SUP_W      = 3;      // px of support width that still counts as a point
+const SNAP_MAX   = 1.2;    // px — the most a sleep-frame snap may move a body
+const PRESLEEP_FIX = .6;   // px per 60Hz-frame of overlap quietly bled while
+                           // stilling (scaled by dt so 30Hz bleeds as fast)
+const DEP_KISS   = .8;     // px of overlap depenetration leaves in place
+const SLEEP_PEN  = 1;      // px into a wall or the floor a body may be at the
+                           // freeze — deeper defers the island's sleep and
+                           // keeps bleeding: the island only sleeps clean
+const ISL_MAXB   = 64;     // island scratch capacity (bodies stay far under)
+const ISL_DEFER  = 240;    // frames an island may defer its freeze waiting to
+                           // come clean before a true jam is frozen as-is
+const MAX_STEP   = 1 / 58; // display frames longer than this integrate in two
+                           // half steps: a sustained 30-50Hz leg pumps ~1px of
+                           // gravity-sink-and-correct sawtooth into every
+                           // contact per frame — the engine under the rocking
+const SUB3_STEP  = 1 / 40; // …and frames longer than THIS integrate in three
+                           // (30Hz runs ~11ms steps): at 16.7ms a fast-dropping
+                           // thin letter still cleared a pill edge in one step,
+                           // and the leftover sawtooth kept whole piles rocking
+                           // for double-digit seconds
 const WAKE_V     = 80;     // contact approach speed that wakes a sleeper
+const WAKE_SOON_T = .5;    // a sleeper impact-woken within this (s) of sleeping…
+const WAKE_SOON_V = 1.5;   // …by less than this × WAKE_V keeps its progress:
+const WAKE_REST  = .1;     // …it re-sleeps after only this much stillness (s)
+const PEN_DEEP   = 1.5;    // px of overlap that counts as genuinely deep…
+const PEN_WAKE_T = .3;     // …for this long: a sleeper wakes to yield, and an
+                           // awake body calls the wedge medic below
+const WEDGE_FIX  = 1.2;    // px/frame the medic walks a wedged awake body out
+                           // of true overlap (tunneled pairs churn too fast
+                           // for the stillness-gated bleed to ever run)
+const WEDGE_V    = 150;    // …but only while it is slow enough to be stuck,
+                           // not flying through a landing's transient
+const WEDGE_DRAIN = .25;   // fraction of the current deepest overlap added to
+                           // the medic's per-frame walk: a 10px tunnel drains
+                           // faster than the load above re-sinks, a 2px jam
+                           // keeps the gentle pace a stilling pile needs
+const WEDGE_PEN  = 6;      // px of true overlap that makes the medic walk at
+                           // all — shallower chronic jams drain through the
+                           // squeeze-aware solver and the island assist;
+                           // walking them every frame was its own churn
+const MEDIC_T    = 2;      // s of persistent deep pen (or of pinned buzzing)
+                           // before the medic escalates: ONE uncapped poke,
+                           // every SLEEPER it is jammed against woken so the
+                           // load can ride up — then MEDIC_T of standing back
+                           // (an every-frame escalation was a churn engine)
+const BUZZ_V     = 50;     // px/s — vibrating faster than this while pinned in
+                           // one spot for MEDIC_T straight counts as a buzz
+const ISL_ASSIST = 2000;   // ms an island may defer its freeze before the
+                           // sleep-frame recap loosens from SNAP_MAX to
+                           // ASSIST_STEP and each frame's progress is KEPT:
+                           // a sandwiched tunneled pair the capped bleed can
+                           // never win (its resultant cancels against the
+                           // neighbors) is walked apart until actually clean
+const ASSIST_STEP = 2.5;   // px/frame of kept assisted-separation progress —
+                           // a settling nudge, never a visible teleport
+const FLOAT_GAP  = .75;    // px of daylight all around a sleeper = floating
+const AUDIT_N    = 30;     // frames between sleeping-support audits
+const AUDIT_PEN  = 2;      // px of sleeper-sleeper overlap the audit unfreezes
+const WARM_R     = 2.5;    // px — warm impulses rematch by proximity when
+                           // rocking manifolds churn their feature ids
 const HULL_PX    = 128;    // size glyphs are rasterized at for tracing
 const HULL_MAXV  = 12;     // max vertices kept per glyph hull
+const CHAMFER    = 3;      // raster px cut from a glyph's sharpest foot so no
+                           // letter balances on a mathematical point
 const TOY_DENS   = 1.4;    // toys are denser than letters
 const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const TAP_PX     = 8;      // pointer travel under this…
@@ -468,13 +554,18 @@ const HOLD_WMAX  = 12;     // rad/s spin cap in the hand — no helicoptering
 /* ---- depth-tumble (the WebGL toys only; the flat r1 fallback has none) ---- */
 const R1_THICK      = .18;   // r1 depth ÷ height — its bake spans z ±0.1814 on a 2.0 model
 const R1_DAMP_AIR   = 1.2;   // tumble decay while airborne, 1/s
-const R1_DAMP_GND   = 2.6;   // tumble decay while touching but still sliding, 1/s
+const R1_DAMP_GND   = 3.5;   // tumble decay while touching but still sliding, 1/s
 const R1_KICK_FLING = .002;  // fling speed (px/s) → tumble (rad/s)
 const R1_KICK_HIT   = .0032; // impact speed (px/s) → tumble (rad/s)
 const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (px/s)
 const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays under ~1.5 turns
-const R1_DAMP_SET   = 3.5;   // grounded spin die-off, 1/s — it lands where it lands
-const R1_HULL_DW    = 2;     // px of width change that justifies re-cutting the collider
+const R1_DAMP_SET   = 6;     // grounded spin die-off, 1/s — it lands where it lands
+const R1_HULL_DW    = 4;     // px of width change that justifies re-cutting the collider
+const R1_RECUT_MS   = 200;   // …and no more often than this — each re-cut is a
+                             // real event to the pile, not a per-frame tween
+const R1_FREEZE_V   = 60;    // grounded slower than this: width tracking stops —
+                             // a settling toy re-cutting under sleepers was
+                             // waking the whole neighbourhood for nothing
 
 let mode = "seated";    // seated | live | homing   (letters + pills — toys never seat)
 let raf = 0, lastT = 0;
@@ -497,12 +588,9 @@ function seatRect(i){ return seats[i].getBoundingClientRect(); }
    ================================================================ */
 const FONT_STACK = '"KMR Apparat",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
 
-/* weight A/B: ?w=350|400|500 flips the whole page (and the glyph hulls) */
-let FONT_WT = (() => {
-  const w = new URLSearchParams(location.search).get("w");
-  return ["350", "400", "500"].includes(w) ? w : "400";
-})();
-if(FONT_WT !== "500") document.body.style.fontWeight = FONT_WT;
+/* the weight the hulls are traced at — matches the headline's rendered
+   400; only the #dev lab may retune it (and it retraces when it does) */
+let FONT_WT = "400";
 const UNIQUE = [...new Set("michaelmofina")];
 const HCW = 192, HCH = 208, HPX = 28, HBY = 156;   // canvas, pen x, baseline y
 const hullCanvas = document.createElement("canvas");
@@ -536,10 +624,10 @@ function convexHull(pts){
   return lo.concat(hi);
 }
 
-/* thin the hull to HULL_MAXV verts, but never remove the extremes —
+/* thin the hull to maxN verts, but never remove the extremes —
    the true bottom of the glyph must survive or floors would lie */
-function simplifyHull(h){
-  while(h.length > HULL_MAXV){
+function simplifyHull(h, maxN){
+  while(h.length > maxN){
     let loI = 0, hiI = 0, leI = 0, riI = 0;
     for(let i = 1; i < h.length; i++){
       if(h[i].y > h[loI].y) loI = i;
@@ -569,6 +657,27 @@ function signedArea(v){
   return a * .5;
 }
 
+/* a glyph whose hull ends in a near-point foot (i, a, e, f, l…) balances
+   on a mathematical vertex and rocks forever; cut the deepest vertex
+   into a CHAMFER-wide flat so it lands on a foot, not a needle */
+function chamferFoot(h){
+  if(h.length < 3) return h;
+  let bi = 0;
+  for(let i = 1; i < h.length; i++) if(h[i].y > h[bi].y) bi = i;
+  const p = h[(bi + h.length - 1) % h.length];
+  const c = h[bi];
+  const n = h[(bi + 1) % h.length];
+  // a foot that already sits on a near-flat bottom edge needs nothing
+  if(c.y - p.y < CHAMFER || c.y - n.y < CHAMFER) return h;
+  const cut = q => {
+    const dx = q.x - c.x, dy = q.y - c.y;
+    const k = Math.min(CHAMFER / (Math.hypot(dx, dy) || 1), .45);
+    return { x: c.x + dx * k, y: c.y + dy * k };
+  };
+  h.splice(bi, 1, cut(p), cut(n));   // order keeps the winding intact
+  return h;
+}
+
 function extractHull(ch){
   hctx.clearRect(0, 0, HCW, HCH);
   hctx.font = FONT_WT + " " + HULL_PX + "px " + FONT_STACK;
@@ -588,8 +697,10 @@ function extractHull(ch){
     }
   }
   if(!pts.length) return null;
-  const h = simplifyHull(convexHull(pts));
+  // simplify one short of the budget: the foot chamfer may add a vertex
+  const h = simplifyHull(convexHull(pts), HULL_MAXV - 1);
   if(signedArea(h) < 0) h.reverse();   // keep positive winding (outward normals)
+  chamferFoot(h);
   return h.map(p => ({ x:(p.x - HPX) / HULL_PX, y:(p.y - HBY) / HULL_PX }));
 }
 
@@ -631,6 +742,23 @@ function mkBody(el, kind){
     rad:20,                      // bounding radius about the centroid
     minx:0, miny:0, maxx:0, maxy:0,   // world AABB for the broadphase
     sleeping:false, still:0, sx:0, sy:0, sa:0, touch:0,
+    fpx:0, fpy:0,                // last frame's pose — the sleep-frame move gate
+    rest: kind === "toy" ? REST_TOY : REST_PAPER,   // per-kind bounce
+    airT:9,                      // seconds since last contact (starts airborne)
+    wstill:0, qx:0, qy:0, qa:0,  // drift-window stillness clock + its anchor
+    sleptAt:-1e9,                // when it last fell asleep (wake hysteresis)
+    penT:0, penDeep:0, penF:0,   // deep-pen stint clock + clean-streak timer
+    supN:0, supLo:0, supHi:0,    // this frame's supporting contacts + their span
+    pinx:0, piny:0,              // plane(s) this substep's position passes had
+                                 // to press it out of (squeeze propagation)
+    awN:0, awX:0, awY:0,         // audit-wake counter — truly wedged pairs are
+                                 // poked a few times, then left in peace
+    bi:0,                        // index in bodies[] this frame (island scratch)
+    isl:-1,                      // id of the island it fell asleep with
+    canSleep:0,                  // passed its member stillness test this frame
+    defN:0, defT:0, kx:0, ky:0,  // island-freeze deferrals (count + first-defer
+                                 // time) + pre-snap pose
+    lastRecut:0,                 // toys: last hull re-cut time (rate limit)
     homeDelay:0, homed:true, dropAt:0,
     entering:false,              // toys fall in from above the ceiling plane
     draw3d:null,                 // a WebGL toy hangs its painter here
@@ -651,8 +779,31 @@ letters.forEach((el, i) => {
   bodies.push(b);
 });
 
-function wake(b){ b.sleeping = false; b.still = 0; b.sx = b.x; b.sy = b.y; b.sa = b.a; }
+function wake(b){
+  b.sleeping = false; b.penT = 0; b.isl = -1; b.defN = 0;
+  b.still = 0;  b.sx = b.x; b.sy = b.y; b.sa = b.a;
+  b.wstill = 0; b.qx = b.x; b.qy = b.y; b.qa = b.a;
+}
 function wakeAll(){ for(const b of bodies) wake(b); }
+
+/* bodies sleep in islands (whole contact clusters, below) and they wake
+   the same way: waking any member wakes everyone it fell asleep with, so
+   neighbors can never trade sleep out of phase and pop each other awake.
+   `keep` carries the impact-wake hysteresis to the whole island: gently
+   woken members keep their still progress and re-sleep in WAKE_REST. */
+function wakeIsland(b, keep){
+  if(!b.sleeping || b.isl < 0){
+    wake(b);
+    if(keep) b.still = Math.max(0, SLEEP_T - WAKE_REST);
+    return;
+  }
+  const gid = b.isl;
+  for(const o of bodies){
+    if(!o.sleeping || o.isl !== gid) continue;
+    wake(o);
+    if(keep) o.still = Math.max(0, SLEEP_T - WAKE_REST);
+  }
+}
 
 /* pull a body out of the world entirely — the shake pill once tilt is
    armed, or a 3D toy whose GL context died. The element goes with it;
@@ -767,6 +918,7 @@ function goLive(){
       b.a = 0;
       b.va = (Math.random() - .5) * 2.4;
       b.homed = false;
+      b.airT = 9;                               // airborne again — may bounce
       b.dropAt = now + b.i * 26 + Math.random() * 90;  // ragged, not synchronized
     } else if(b.kind === "pill"){
       const r = b.el.getBoundingClientRect();
@@ -782,6 +934,7 @@ function goLive(){
       b.a = 0;
       b.va = (Math.random() - .5) * 1.6;        // chips spin a touch less
       b.homed = false;
+      b.airT = 9;                               // airborne again — may bounce
       b.dropAt = now + Math.random() * 380;     // inside the letters' ragged window
     }
   }
@@ -1030,12 +1183,13 @@ if(shakeBtn && hasTouch && typeof DeviceOrientationEvent !== "undefined"){
 }
 
 /* ================================================================
-   Pills — the four bits of page UI are rigid bodies too. They spill
-   with the letters, drag and fling like them, and home to seats kept
-   by ghost clones (a hidden shake pill's clone stays hidden with it,
-   so the row's twin always lays out like the real one). Seated, they
-   are plain links and buttons again. Reduced motion never reaches
-   this code — the IIFE returned long ago.
+   Pills — the two chips under the name are rigid bodies too. They
+   spill with the letters, drag and fling like them, and home to
+   seats kept by ghost clones (a hidden shake pill's clone stays
+   hidden with it, so the row's twin always lays out like the real
+   one). Seated, they are plain links and buttons again; the corner
+   wayfinding never falls. Reduced motion never reaches this code —
+   the IIFE returned long ago.
    ================================================================ */
 const pillEls = [                      // only the under-name row falls now —
   shakeBtn,                            // the corner is static wayfinding
@@ -1052,7 +1206,7 @@ pillEls.forEach((el, k) => {
   el.addEventListener("click", pillClickGuard);
   if(el.hidden) return;                // no body for a pill that isn't shown
   const b = mkBody(el, "pill");
-  b.i = letters.length + k;            // seats[13..16], gaps where pills hide
+  b.i = letters.length + k;            // seats[13..14], a gap where a pill hides
   bodies.push(b);                      // geometry arrives at goLive, measured
 });
 
@@ -1097,7 +1251,9 @@ function seatAll(){
   document.getElementById("pillrow").style.height = "";
 }
 addEventListener("keydown", e => { if(e.key === "Escape") goHome(); });
-addEventListener("dblclick", goHome);
+// double-click reassembles the scene — but never from inside the open
+// menu, where a double-click is just enthusiasm for a link
+addEventListener("dblclick", () => { if(menu.hidden) goHome(); });
 
 /* ================================================================
    Contacts — AABB broadphase, SAT narrowphase with reference-face
@@ -1111,24 +1267,42 @@ addEventListener("dblclick", goHome);
    ================================================================ */
 const contacts = [];
 for(let i = 0; i < 256; i++){
-  contacts.push({ a:null, b:null, px:0, py:0, nx:0, ny:0, pen:0, fid:0,
-                  rax:0, ray:0, rbx:0, rby:0, mN:1, mT:1, bias:0, jn:0, jt:0 });
+  contacts.push({ a:null, b:null, px:0, py:0, nx:0, ny:0, pen:0, pen0:0, fid:0,
+                  warm:-1, rax:0, ray:0, rbx:0, rby:0, mN:1, mT:1, bias:0, jn:0, jt:0 });
 }
 let nContacts = 0;
 
-/* last frame's impulses, keyed by (body id, body id, feature id): each
-   frame's solve starts where the last one ended instead of from zero,
-   so stacks converge instead of re-shuddering every frame */
+/* last frame's impulses, keyed by (body id, body id, feature id) — and,
+   when ids churn, by where the contact point actually was: each frame's
+   solve starts where the last one ended instead of from zero, so stacks
+   converge instead of re-shuddering every frame */
 const prevA = new Int32Array(256), prevB = new Int32Array(256),
       prevF = new Int32Array(256);
 const prevJn = new Float64Array(256), prevJt = new Float64Array(256);
+const prevPX = new Float64Array(256), prevPY = new Float64Array(256);
+const prevUsed = new Uint8Array(256);
 let nPrev = 0;
+let frameN = 0;                // frame counter — schedules the support audit
+
+/* contact islands — union-find scratch over bodies[] indices, preallocated.
+   Sleep is an island decision: a whole touching cluster freezes as one or
+   not at all, so no member can ever sleep out of phase with a neighbor. */
+const islP     = new Int32Array(ISL_MAXB);   // union-find parent per slot
+const islStill = new Uint8Array(ISL_MAXB);   // every awake member still?
+const islTried = new Uint8Array(ISL_MAXB);   // island already handled this frame
+let islandSeq = 0;                           // ids stamped on sleeping islands
+function islFind(i){
+  while(islP[i] !== i){ islP[i] = islP[islP[i]]; i = islP[i]; }
+  return i;
+}
+
+let gPerpX = -1, gPerpY = 0;   // unit vector across gravity (support widths)
 
 function addContact(A, B, px, py, nx, ny, pen, fid){
   if(nContacts >= contacts.length) return;
   const c = contacts[nContacts++];
   c.a = A; c.b = B; c.px = px; c.py = py; c.nx = nx; c.ny = ny;
-  c.pen = pen; c.fid = fid; c.jn = 0; c.jt = 0;
+  c.pen = pen; c.fid = fid; c.jn = 0; c.jt = 0; c.warm = -1;
 }
 
 function updateWorld(b){
@@ -1163,6 +1337,17 @@ function maxSeparation(A, B){
   satRes.sep = best; satRes.edge = bestE;
 }
 
+/* what incident edge did this pair use last frame? (body-body fids only —
+   bit 12 marks planes.) The incident pick below prefers it, so 2-point
+   manifolds stop flickering their second clip point at display-rate dt */
+function prevIncident(ida, idb, flip){
+  for(let k = 0; k < nPrev; k++){
+    if(prevA[k] === ida && prevB[k] === idb && (prevF[k] & 4096) === 0 &&
+       ((prevF[k] & 2048) !== 0) === flip) return (prevF[k] >> 3) & 15;
+  }
+  return -1;
+}
+
 /* clip the incident edge to the reference face; emit 1–2 contacts */
 function collidePoly(A, B){
   maxSeparation(A, B); const sepA = satRes.sep, eA = satRes.edge;
@@ -1181,15 +1366,19 @@ function collidePoly(A, B){
   ex /= el0; ey /= el0;
   const nx = ey, ny = -ex;                    // reference face normal, R -> I
 
-  // incident edge: the face of I most opposed to the reference normal
-  let bi = 0, bd = 1e9;
+  // incident edge: the face of I most opposed to the reference normal —
+  // with hysteresis: keep last frame's pick unless clearly beaten
+  let bi = 0, bd = 1e9, pd = 1e9;
+  const pBi = prevIncident(A.id, B.id, flip);
   for(let i = 0; i < I.nv; i++){
     const j = (i + 1) % I.nv;
     const iex = I.wv[j].x - I.wv[i].x, iey = I.wv[j].y - I.wv[i].y;
     const il = 1 / (Math.hypot(iex, iey) || 1);
     const d = (iey * il) * nx + (-iex * il) * ny;
+    if(i === pBi) pd = d;
     if(d < bd){ bd = d; bi = i; }
   }
+  if(pBi >= 0 && pBi < I.nv && pd < bd + .05) bi = pBi;
   const bj = (bi + 1) % I.nv;
   let p1x = I.wv[bi].x, p1y = I.wv[bi].y;
   let p2x = I.wv[bj].x, p2y = I.wv[bj].y;
@@ -1248,10 +1437,64 @@ function planeContacts(b, W, H){
   }
 }
 
-/* precompute effective masses + restitution bias; apply warm-start impulses */
-function prepContact(c){
+/* match this frame's contacts to last frame's impulses BEFORE any are
+   applied: exact feature id first, then — for pairs whose points
+   survived but changed ids (a rocking 2-point manifold flickers its
+   second clip point at display-rate dt) — nearest same-pair point
+   within WARM_R. Each stored impulse is spent at most once. */
+function matchWarm(){
+  for(let k = 0; k < nPrev; k++) prevUsed[k] = 0;
+  for(let i = 0; i < nContacts; i++){
+    const c = contacts[i];
+    const ida = c.a.id, idb = c.b ? c.b.id : -1;
+    for(let k = 0; k < nPrev; k++){
+      if(!prevUsed[k] && prevA[k] === ida && prevB[k] === idb &&
+         prevF[k] === c.fid){ c.warm = k; prevUsed[k] = 1; break; }
+    }
+  }
+  for(let i = 0; i < nContacts; i++){
+    const c = contacts[i];
+    if(c.warm >= 0) continue;
+    const ida = c.a.id, idb = c.b ? c.b.id : -1;
+    let bk = -1, bd = WARM_R * WARM_R;
+    for(let k = 0; k < nPrev; k++){
+      if(prevUsed[k] || prevA[k] !== ida || prevB[k] !== idb) continue;
+      const dx = c.px - prevPX[k], dy = c.py - prevPY[k];
+      const d = dx * dx + dy * dy;
+      if(d < bd){ bd = d; bk = k; }
+    }
+    if(bk >= 0){ c.warm = bk; prevUsed[bk] = 1; }
+  }
+}
+
+/* one supporting contact reported: remember how wide the base is */
+function supAdd(b, px, py){
+  const s = px * gPerpX + py * gPerpY;
+  if(b.supN === 0){ b.supLo = s; b.supHi = s; }
+  else{ if(s < b.supLo) b.supLo = s; if(s > b.supHi) b.supHi = s; }
+  b.supN++;
+}
+
+/* an impact wakes a sleeper — its whole island with it — but a weak hit
+   soon after the island slept keeps everyone's progress, so a gentle
+   wake-resettle exchange stays a beat, never a loop */
+function wakeHit(b, vn, t){
+  const soon = t - b.sleptAt < WAKE_SOON_T * 1000 && -vn < WAKE_V * WAKE_SOON_V;
+  wakeIsland(b, soon);
+}
+
+/* precompute effective masses + restitution bias, and read every gate off
+   the TRUE relative velocity — warm-start impulses are applied afterwards
+   in a separate pass (warmContact), never before the measurements. When
+   they were interleaved, each contact's approach speed included the warm
+   impulses of every earlier contact on the same bodies: under a tall
+   stack that read as a phantom impact of hundreds of px/s on a body at
+   rest, re-kicking toy tumbles and re-waking sleepers forever. */
+function prepContact(c, dt, t){
   const A = c.a, B = c.b;
   A.touch = 1; if(B) B.touch = 1;
+  c.pen0 = c.pen;                 // the narrowphase truth — solvePos drains
+                                  // c.pen as bookkeeping, the medic reads this
   c.rax = c.px - A.x; c.ray = c.py - A.y;
   if(B){ c.rbx = c.px - B.x; c.rby = c.py - B.y; }
   const raN = c.rax * c.ny - c.ray * c.nx;
@@ -1268,35 +1511,68 @@ function prepContact(c){
   let rvx = -(A.vx - A.va * c.ray), rvy = -(A.vy + A.va * c.rax);
   if(B){ rvx += B.vx - B.va * c.rby; rvy += B.vy + B.va * c.rbx; }
   const vn = rvx * c.nx + rvy * c.ny;
-  c.bias = vn < -REST_MIN ? -REST * vn : 0;   // resting contact: zero bounce
 
-  // an arriving impact wakes sleepers
+  // the dt-honest approach speed: against a plane or a sleeper, the
+  // gravity integrated THIS frame (g·n̂·dt — 33px/s per 60Hz frame, 67 at
+  // the clamp) sits in vn without the body having moved anywhere. Take
+  // it back out before deciding whether this is a real impact, or every
+  // grounded body re-crosses the gate forever at display-rate dt.
+  let comp = 0;
+  if(!B || B.sleeping)   comp =  (gravX * c.nx + gravY * c.ny) * dt;
+  else if(A.sleeping)    comp = -(gravX * c.nx + gravY * c.ny) * dt;
+  if(comp < 0) comp = 0;               // never manufacture approach speed
+  const vnb = vn + comp;
+
+  // restitution: only a body that actually flew here may bounce —
+  // paper settling on paper never re-arms the gate
+  const air = B ? (A.airT > B.airT ? A.airT : B.airT) : A.airT;
+  c.bias = (air > REST_AIR && vnb < -REST_MIN)
+    ? -(B && B.rest > A.rest ? B.rest : A.rest) * vnb : 0;
+
+  // an arriving impact wakes sleepers (gently-woken ones re-sleep fast)
   if(vn < -WAKE_V){
-    if(A.sleeping) wake(A);
-    if(B && B.sleeping) wake(B);
+    if(A.sleeping) wakeHit(A, vn, t);
+    if(B && B.sleeping) wakeHit(B, vn, t);
   }
   // a hard-enough hit sends a 3D toy tumbling in depth (it rides the
-  // solver's contacts — no collision detection of its own)
-  if(vn < -R1_KICK_MIN){
+  // solver's contacts — no collision detection of its own). Only a party
+  // that actually FLEW here may kick: a grounded pile shuffling its load
+  // is pressure, not a strike, and must never re-spin a settling toy
+  if(vn < -R1_KICK_MIN && air > REST_AIR){
     if(A.tumbles) kickTumble(A, -vn, c.nx, c.ny);
     else if(B && B.tumbles) kickTumble(B, -vn, c.nx, c.ny);
   }
 
-  // warm start: begin from the impulse this same contact carried last
-  // frame, applied up front, so the stack holds itself without re-impact
-  const ida = A.id, idb = B ? B.id : -1;
-  for(let k = 0; k < nPrev; k++){
-    if(prevA[k] === ida && prevB[k] === idb && prevF[k] === c.fid){
-      c.jn = prevJn[k]; c.jt = prevJt[k];
-      const px = c.jn * c.nx + c.jt * tx, py = c.jn * c.ny + c.jt * ty;
-      A.vx -= px * A.iM; A.vy -= py * A.iM;
-      A.va -= (c.rax * py - c.ray * px) * A.iI;
-      if(B){
-        B.vx += px * B.iM; B.vy += py * B.iM;
-        B.va += (c.rbx * py - c.rby * px) * B.iI;
-      }
-      break;
-    }
+  // who is holding whom up, and on how wide a base — the settle pass
+  // leans harder on bodies balanced on a single point
+  const gd = (c.nx * gravX + c.ny * gravY) / G;
+  if(gd > .6) supAdd(A, c.px, c.py);
+  else if(B && gd < -.6) supAdd(B, c.px, c.py);
+
+  // parked deep inside each other: note it — if it persists, a sleeper
+  // must wake and yield, an awake body gets walked out by the medic
+  // (the position solver can't win a deep jam alone)
+  if(c.pen > PEN_DEEP){
+    A.penDeep = 1;
+    if(B) B.penDeep = 1;
+  }
+}
+
+/* warm start, its own pass once every contact has been measured: begin
+   from the impulse this contact carried last frame (matched by id or
+   proximity), applied up front, so the stack holds itself without
+   re-impact */
+function warmContact(c){
+  if(c.warm < 0) return;
+  const A = c.a, B = c.b;
+  c.jn = prevJn[c.warm]; c.jt = prevJt[c.warm];
+  const tx = -c.ny, ty = c.nx;
+  const px = c.jn * c.nx + c.jt * tx, py = c.jn * c.ny + c.jt * ty;
+  A.vx -= px * A.iM; A.vy -= py * A.iM;
+  A.va -= (c.rax * py - c.ray * px) * A.iI;
+  if(B){
+    B.vx += px * B.iM; B.vy += py * B.iM;
+    B.va += (c.rbx * py - c.rby * px) * B.iI;
   }
 }
 
@@ -1334,16 +1610,58 @@ function solveVel(c){
   }
 }
 
+/* pair position correction — squeeze-aware when the pair is genuinely
+   tunneled (pen past PEN_DEEP): a party whose exit direction points
+   straight into a plane that pinned it this substep (the pill on the
+   floor under a tunneled-in letter) FORFEITS its share — the plane
+   pass would take it right back anyway — while the other party keeps
+   its own natural share and drains the overlap for real. The forfeited
+   share is NOT transferred: handing it over doubled the free party's
+   step, and a light letter deep between two heavies got slammed 8px a
+   frame between its neighbors, detaching every contact it needed.
+   Shallow resting pens keep the plain mass split untouched. */
 function solvePos(c){
   if(c.pen <= SLOP) return;
   const A = c.a, B = c.b;
   const iMb = B ? B.iM : 0;
-  const total = A.iM + iMb;
-  if(total <= 0) return;
-  const corr = BAUM * (c.pen - SLOP) / total;
-  A.x -= c.nx * corr * A.iM; A.y -= c.ny * corr * A.iM;
-  if(B){ B.x += c.nx * corr * iMb; B.y += c.ny * corr * iMb; }
-  c.pen -= BAUM * (c.pen - SLOP);
+  let wA = A.iM, wB = iMb;
+  if(B && c.pen > PEN_DEEP){
+    if(-c.nx * A.pinx - c.ny * A.piny > .7) wA = 0;   // A exits through its plane
+    if( c.nx * B.pinx + c.ny * B.piny > .7) wB = 0;   // B exits through its plane
+    if(wA === 0 && wB === 0){ wA = A.iM; wB = iMb; }  // both trapped: old split
+  }
+  const total = A.iM + iMb;                 // natural shares, forfeits dropped
+  if(total <= 0 || wA + wB <= 0) return;
+  const step = Math.min(BAUM * (c.pen - SLOP), POS_CORR);
+  const corr = step / total;
+  A.x -= c.nx * corr * wA; A.y -= c.ny * corr * wA;
+  if(B){ B.x += c.nx * corr * wB; B.y += c.ny * corr * wB; }
+  c.pen -= step;
+}
+
+/* planes go LAST in every position pass and correct in full. The depth
+   is re-measured from the live pose each time (position passes only
+   translate, so the stored contact-vertex offset stays exact), because
+   the pair corrections above may have pressed a squeezed body back into
+   the floor mid-pass: a thin letter under a loaded pill at 33ms dt used
+   to lose that fight forever, buzzing at y > H while the capped floor
+   step was out-muscled six-to-one. The floor gets the final word, every
+   pass, so no frame ever ends with a body past a wall or the floor —
+   the capped pair solver then extracts the overlap at the heavy party's
+   pace while the load rides up. Position-only, like every correction
+   here: the velocities never see it, so there is nothing to bounce. */
+function solvePlanePos(c, W, H){
+  const A = c.a;
+  if(A.iM <= 0) return;
+  const off = c.ny > 0 ? H : (c.nx > 0 ? W : 0);
+  const d = (A.x + c.rax) * c.nx + (A.y + c.ray) * c.ny - off;
+  if(d <= SLOP) return;
+  A.x -= c.nx * (d - SLOP);
+  A.y -= c.ny * (d - SLOP);
+  if(c.nx) A.pinx = c.nx;           // pinned: it was being pressed into this
+  if(c.ny) A.piny = c.ny;           // plane — pair passes now hand its share
+                                    // to the party that CAN yield (axis-unit
+                                    // components; a corner body keeps both)
 }
 
 /* ---- the loop ---- */
@@ -1358,21 +1676,26 @@ function simActive(b, t){
 }
 
 function floorSnap(b, H){
-  // asleep means at rest — put the lowest hull vertex exactly ON the line
+  // asleep means at rest — put the lowest hull vertex exactly ON the
+  // line, but never move more than SNAP_MAX: a settled-looking body
+  // teleporting at the sleep frame IS the pop we're killing
   updateWorld(b);
   let maxy = -1e9;
   for(let i = 0; i < b.nv; i++) if(b.wv[i].y > maxy) maxy = b.wv[i].y;
   const d = H - maxy;
-  if(d > -3 && d < 3) b.y += d;
+  if(d > -SNAP_MAX && d < SNAP_MAX) b.y += d;
 }
 
-/* one last de-penetration before a body sleeps: project it clear of the
-   walls and of everything nearby so nothing ever sleeps overlapping.
-   Position-only, moves only the sleeper-to-be, and measures TRUE overlap
-   with the SAT (clip points under-report angled overlaps). Planes go
-   last within each pass so the floor always has the final word.
-   (Sleeping bodies stay immovable to the position pass, so live bodies
-   are pushed OUT of them, never through.) */
+/* de-penetration by pure position projection: slide b clear of the
+   walls and of everything nearby, measuring TRUE overlap with the SAT
+   (clip points under-report angled overlaps). Planes go last within
+   each pass so the floor always has the final word. (Sleeping bodies
+   stay immovable to the position pass, so live bodies are pushed OUT
+   of them, never through.) Overlap up to DEP_KISS is tolerated — that
+   is inside the solver's own SLOP comfort zone — and `cap` bounds the
+   total move: while a body stills toward sleep this runs every frame
+   with a small cap, spreading the cleanup over the whole still window
+   instead of saving it up for one visible sleep-frame jump. */
 const depN = { x:0, y:0 };
 function depFaceNormal(A, e){
   const j = (e + 1) % A.nv;
@@ -1380,7 +1703,8 @@ function depFaceNormal(A, e){
   const il = 1 / (Math.hypot(ex, ey) || 1);
   depN.x = ey * il; depN.y = -ex * il;
 }
-function depenetrate(b, W, H){
+function depenetrate(b, W, H, cap){
+  const x0 = b.x, y0 = b.y;
   for(let pass = 0; pass < 6; pass++){
     updateWorld(b);
     let moved = false;
@@ -1389,12 +1713,12 @@ function depenetrate(b, W, H){
       if(b.minx > o.maxx || o.minx > b.maxx ||
          b.miny > o.maxy || o.miny > b.maxy) continue;
       maxSeparation(b, o); const sA = satRes.sep, eA = satRes.edge;
-      if(sA >= -.1) continue;
+      if(sA >= -DEP_KISS) continue;
       maxSeparation(o, b); const sB = satRes.sep, eB = satRes.edge;
-      if(sB >= -.1) continue;
-      // slide b out along the least-overlap axis, leaving a .1px kiss
-      if(sA >= sB){ depFaceNormal(b, eA); b.x -= depN.x * (-sA - .1); b.y -= depN.y * (-sA - .1); }
-      else        { depFaceNormal(o, eB); b.x += depN.x * (-sB - .1); b.y += depN.y * (-sB - .1); }
+      if(sB >= -DEP_KISS) continue;
+      // slide b out along the least-overlap axis, leaving a light kiss
+      if(sA >= sB){ depFaceNormal(b, eA); b.x -= depN.x * (-sA - DEP_KISS); b.y -= depN.y * (-sA - DEP_KISS); }
+      else        { depFaceNormal(o, eB); b.x += depN.x * (-sB - DEP_KISS); b.y += depN.y * (-sB - DEP_KISS); }
       moved = true;
       updateWorld(b);
     }
@@ -1411,19 +1735,231 @@ function depenetrate(b, W, H){
     if(miny < 0 && !b.entering){ b.y -= miny; moved = true; }
     if(!moved) break;
   }
+  let dx = b.x - x0, dy = b.y - y0;
+  let d = Math.hypot(dx, dy);
+  if(cap && d > cap){                  // clamp the resultant; what's left
+    const k = cap / d;                 // bleeds out on the coming frames
+    b.x = x0 + dx * k; b.y = y0 + dy * k;
+    d = cap;
+    updateWorld(b);
+  }
+  return d;
+}
+
+/* deepest true overlap (px) between m and any other collidable body —
+   the island clean-sleep gate reads it: a pair frozen visibly inside
+   each other is the one artifact a sleep may never bake in */
+function pairPen(m){
+  let deep = 0;
+  for(const o of bodies){
+    if(o === m || !o.col) continue;
+    if(m.minx > o.maxx || o.minx > m.maxx ||
+       m.miny > o.maxy || o.miny > m.maxy) continue;
+    maxSeparation(m, o); const s1 = satRes.sep;
+    if(s1 >= 0) continue;
+    maxSeparation(o, m); const s2 = satRes.sep;
+    const s = s1 > s2 ? s1 : s2;
+    if(-s > deep) deep = -s;
+  }
+  return deep;
+}
+
+/* the assist's last unlock: a member that is STILL deep in someone
+   after ISL_ASSIST of deferring is trapped — and the trap's roof is
+   usually a sleeper it merely KISSES (a frozen toy right above it
+   blocks the only exit while the deep overlap is with the awake pill
+   below, so no depth test on the sleeper itself ever fires). Gently
+   wake every sleeper the member touches (progress kept, so a bystander
+   re-sleeps in a beat): once the roof can ride up, the squeeze drains
+   and the island — the woken neighbor now unioned in — freezes clean
+   together. */
+function assistWake(m){
+  if(pairPen(m) <= SLEEP_PEN) return;
+  for(const o of bodies){
+    if(o === m || !o.col || !o.sleeping) continue;
+    if(m.minx > o.maxx + 1 || o.minx > m.maxx + 1 ||
+       m.miny > o.maxy + 1 || o.miny > m.maxy + 1) continue;
+    maxSeparation(m, o); const s1 = satRes.sep;
+    if(s1 >= .25) continue;
+    maxSeparation(o, m); const s2 = satRes.sep;
+    if((s1 > s2 ? s1 : s2) < .25) wakeIsland(o, true);
+  }
+}
+
+/* …and for an AWAKE roof: the mass-split solver lifts a heavy slab off
+   a trapped letter at its inverse-mass share — one twentieth of a px a
+   pass, forever. Once the island is in assisted deferral, move the
+   member's deepest awake partner OUT along their separation axis
+   directly: a few px a frame, mass-blind, kept. (When that axis points
+   into the partner's own plane the plane pass takes the step back — a
+   wasted frame, not a harm: the deepest partner alternates around the
+   sandwich and the free-direction frames drain it.) The column
+   detightens body by body until the island finally reads clean. */
+function roofLift(m){
+  let deep = SLEEP_PEN, tgt = null, dirx = 0, diry = 0;
+  for(const o of bodies){
+    if(o === m || !o.col || o.sleeping || o === held) continue;
+    if(m.minx > o.maxx || o.minx > m.maxx ||
+       m.miny > o.maxy || o.miny > m.maxy) continue;
+    maxSeparation(m, o); const s1 = satRes.sep, e1 = satRes.edge;
+    if(s1 >= 0) continue;
+    maxSeparation(o, m); const s2 = satRes.sep, e2 = satRes.edge;
+    const s = s1 > s2 ? s1 : s2;
+    if(-s <= deep) continue;
+    deep = -s;
+    tgt = o;
+    if(s1 >= s2){ depFaceNormal(m, e1); dirx =  depN.x; diry =  depN.y; }
+    else        { depFaceNormal(o, e2); dirx = -depN.x; diry = -depN.y; }
+  }
+  if(!tgt) return;
+  const step = Math.min(deep - DEP_KISS, ASSIST_STEP);
+  if(step <= 0) return;
+  tgt.x += dirx * step; tgt.y += diry * step;
+  updateWorld(tgt);
+}
+
+/* the moment of sleep — a whole island's at once. Every member of the
+   contact island rooted at r has passed its stillness test, so the
+   cluster freezes as one, in this same frame, after a single collective
+   final de-penetration: floor-snap plus two rounds of overlap bleed,
+   each body's TOTAL correction capped at SNAP_MAX (a settled-looking
+   body teleporting at the sleep instant was the single most visible
+   pop). The island only sleeps clean — clean now means BOTH ways: a
+   member the cap left more than SLEEP_PEN inside a wall or the floor,
+   OR more than SLEEP_PEN inside any neighbor, defers the whole freeze,
+   the poses revert untouched, and the ordinary pre-sleep bleed keeps
+   working the overlap down. A pair the capped bleed cannot clean within
+   ISL_ASSIST ms of deferring (sandwiched, its every resultant cancels)
+   graduates to assisted separation: the recap loosens to ASSIST_STEP
+   and each frame's progress is KEPT instead of reverted — a few px a
+   frame, until the island really is clean. A truly jammed island stops
+   deferring after ISL_DEFER frames and freezes as-is rather than churn
+   forever. No one outside the island moves, so there is no snap for a
+   sleeping cluster to pop its neighbors with — the old sleep-wake
+   metronome has nothing left to tick. Returns true when poses changed
+   for good — a freeze or a kept assist step — so the caller repaints
+   rather than stopping on a stale frame. */
+function islandSleep(r, W, H, t){
+  let assist = false;
+  for(const m of bodies){
+    if(!m.sim || m.sleeping || islFind(m.bi) !== r) continue;
+    if(m.defN > 0 && t - m.defT > ISL_ASSIST){ assist = true; break; }
+  }
+  const cap = assist ? ASSIST_STEP : SNAP_MAX;
+  for(let round = 0; round < 2; round++){
+    for(const m of bodies){
+      if(!m.sim || m.sleeping || islFind(m.bi) !== r) continue;
+      if(round === 0){ m.kx = m.x; m.ky = m.y; floorSnap(m, H); }
+      depenetrate(m, W, H, 0);            // round 2 clears what round 1 shuffled
+      const dx = m.x - m.kx, dy = m.y - m.ky;
+      const d = Math.hypot(dx, dy);
+      if(d > cap){
+        const k = cap / d;
+        m.x = m.kx + dx * k; m.y = m.ky + dy * k;
+      }
+      updateWorld(m);
+    }
+  }
+  let dirty = false, jammed = false;
+  for(const m of bodies){
+    if(!m.sim || m.sleeping || islFind(m.bi) !== r) continue;
+    if(m.maxy > H + SLEEP_PEN || m.minx < -SLEEP_PEN || m.maxx > W + SLEEP_PEN ||
+       (!m.entering && m.miny < -SLEEP_PEN)) dirty = true;
+    if(!dirty && pairPen(m) > SLEEP_PEN) dirty = true;
+    if(m.defN > ISL_DEFER) jammed = true;
+  }
+  if(dirty && !jammed){
+    for(const m of bodies){
+      if(!m.sim || m.sleeping || islFind(m.bi) !== r) continue;
+      if(!assist){                        // a deferred frame shows no nudge —
+        m.x = m.kx; m.y = m.ky;           // until ISL_ASSIST, when kept steps
+        updateWorld(m);                   // ARE the cure
+      } else { assistWake(m); roofLift(m); }
+      if(m.defN === 0) m.defT = t;
+      m.defN++;
+    }
+    return assist;
+  }
+  for(const m of bodies){
+    if(!m.sim || m.sleeping || islFind(m.bi) !== r) continue;
+    m.sleeping = true;
+    m.vx = m.vy = m.va = 0;
+    m.sleptAt = t;
+    m.penT = 0;
+    m.defN = 0;
+    m.isl = islandSeq;
+  }
+  islandSeq++;
+  return true;
+}
+
+/* wake a sleeper the audit is unhappy about (its island with it) — but a
+   body that keeps re-freezing in the same spot is truly wedged: poke it
+   a few times, then leave it in peace rather than tick forever */
+function auditWake(b){
+  if(Math.abs(b.x - b.awX) + Math.abs(b.y - b.awY) > 2) b.awN = 0;
+  if(b.awN >= 3) return 0;
+  b.awN++; b.awX = b.x; b.awY = b.y;
+  wakeIsland(b, false);
+  return 1;
+}
+
+/* every AUDIT_N frames (and after any sleep-frame snap): no sleeper may
+   float — support gone means wake up and finish the fall — and no two
+   sleepers may stay frozen deep inside each other: wake the lighter one
+   so the pair can resolve while the page is already animating */
+function supportAudit(W, H){
+  let woke = 0;
+  for(const b of bodies){
+    if(!b.sleeping || !b.col) continue;
+    let gap = Math.min(H - b.maxy, b.minx, W - b.maxx);
+    for(const o of bodies){
+      if(o === b || !o.col) continue;
+      if(b.minx > o.maxx + 4 || o.minx > b.maxx + 4 ||
+         b.miny > o.maxy + 4 || o.miny > b.maxy + 4) continue;
+      maxSeparation(b, o); const s1 = satRes.sep;
+      maxSeparation(o, b); const s2 = satRes.sep;
+      const s = s1 > s2 ? s1 : s2;
+      if(s < gap) gap = s;
+      if(o.sleeping && b.id < o.id && s < -AUDIT_PEN)
+        woke += auditWake(b.m <= o.m ? b : o);
+    }
+    if(gap > FLOAT_GAP) woke += auditWake(b);
+  }
+  return woke;
 }
 
 function step(t){
   raf = 0;
-  const dt = Math.min(Math.max((t - lastT) / 1000, .0005), 1 / 30);
+  const dtF = Math.min(Math.max((t - lastT) / 1000, .0005), 1 / 30);
   lastT = t;
   const W = innerWidth, H = innerHeight;
 
+  gPerpX = -gravY / G; gPerpY = gravX / G;   // across-gravity unit axis
+
+  // long display frames split in two — the longest in three: the solver
+  // sees at most ~MAX_STEP of gravity at a time, so a 30Hz phone isn't
+  // a different physics world (and a 33ms frame can't tunnel a letter
+  // through a pill edge in a single 16.7ms bite)
+  const nSub = dtF > SUB3_STEP ? 3 : dtF > MAX_STEP ? 2 : 1;
+  for(let sub = 0; sub < nSub; sub++) subStep(dtF / nSub, t, W, H, sub === 0);
+  finishStep(dtF, t, W, H);
+}
+
+function subStep(dt, t, W, H, first){
   // gravity + drag on everything awake — the held body included: it
-  // stays fully dynamic, and the pin below is what carries it
+  // stays fully dynamic, and the pin below is what carries it.
+  // touch and penDeep clear only on the FIRST substep: they are what
+  // the frame-rate code (airT, the pen-wake clock, the sleep window)
+  // reads, and sampling just the last substep silently dropped every
+  // touch the first one saw — at sustained 30Hz that re-armed the
+  // restitution gate on grounded bodies and starved the pen-wake
+  // clock, and the pile churned for minutes instead of settling
   for(const b of bodies){
     b.sim = simActive(b, t);
-    b.touch = 0;
+    if(first){ b.touch = 0; b.penDeep = 0; }
+    b.supN = 0;
+    b.pinx = 0; b.piny = 0;   // plane-pin flags are per-substep facts
     // held is never immovable — just modestly heavier to the pile, so a
     // shove nudges it in the hand instead of knocking it off the finger
     b.iM = b.sleeping ? 0 : (b === held ? b.invM / HOLD_MASS : b.invM);
@@ -1512,7 +2048,7 @@ function step(t){
 
   // a 3D toy's collider width tracks its yaw — face-on the full octagon,
   // edge-on a thin slab (a fattening hull pushes, never teleports)
-  for(const b of bodies) if(b.tumbles) r1TrackWidth(b);
+  for(const b of bodies) if(b.tumbles) r1TrackWidth(b, t);
 
   // broadphase + narrowphase
   nContacts = 0;
@@ -1528,23 +2064,30 @@ function step(t){
       if(!B.col) continue;
       if(A.sleeping && B.sleeping) continue;
       if(A.minx > B.maxx || B.minx > A.maxx || A.miny > B.maxy || B.miny > A.maxy) continue;
-      if(A === held && B.sleeping) wake(B);   // the hand shoves sleepers awake
-      if(B === held && A.sleeping) wake(A);
+      if(A === held && B.sleeping) wakeIsland(B, false);   // the hand shoves
+      if(B === held && A.sleeping) wakeIsland(A, false);   // sleepers awake
       collidePoly(A, B);
     }
     if(!A.sleeping || A === held) planeContacts(A, W, H);
   }
 
-  for(let i = 0; i < nContacts; i++) prepContact(contacts[i]);
+  matchWarm();
+  for(let i = 0; i < nContacts; i++) prepContact(contacts[i], dt, t);
+  for(let i = 0; i < nContacts; i++) warmContact(contacts[i]);
   for(let it = 0; it < VEL_ITERS; it++)
     for(let i = 0; i < nContacts; i++) solveVel(contacts[i]);
 
   // a body that is slow AND touching something is trying to settle:
-  // bleed off the residual rock so thin letters stop teetering
+  // bleed off the residual rock so thin letters stop teetering — and
+  // lean SETTLE_1PT times harder on one balanced on a single vertex,
+  // where gravity torque against point impulses rocks forever
   for(const b of bodies){
     if(!b.sim || b === held || b.sleeping || !b.touch) continue;
-    if(Math.hypot(b.vx, b.vy) < 50){
-      b.va *= Math.max(0, 1 - SETTLE_ANG * dt);
+    if(Math.hypot(b.vx, b.vy) < SETTLE_V){
+      const onePt = b.supN === 1 ||
+                    (b.supN > 1 && b.supHi - b.supLo < SUP_W);
+      b.va *= Math.max(0, 1 - (onePt ? SETTLE_ANG * SETTLE_1PT
+                                     : SETTLE_ANG) * dt);
       b.vx *= Math.max(0, 1 - SETTLE_LIN * dt);
     }
   }
@@ -1560,17 +2103,24 @@ function step(t){
     if(b.entering && b.y > b.rad + 6) b.entering = false;  // fully inside now
   }
 
-  for(let it = 0; it < POS_ITERS; it++)
-    for(let i = 0; i < nContacts; i++) solvePos(contacts[i]);
+  // pairs first, planes last within each pass — see solvePlanePos
+  for(let it = 0; it < POS_ITERS; it++){
+    for(let i = 0; i < nContacts; i++) if(contacts[i].b)  solvePos(contacts[i]);
+    for(let i = 0; i < nContacts; i++) if(!contacts[i].b) solvePlanePos(contacts[i], W, H);
+  }
 
-  // remember this frame's impulses for next frame's warm start
+  // remember this pass's impulses for the next one's warm start
   nPrev = nContacts;
   for(let i = 0; i < nContacts; i++){
     const c = contacts[i];
     prevA[i] = c.a.id; prevB[i] = c.b ? c.b.id : -1;
     prevF[i] = c.fid; prevJn[i] = c.jn; prevJt[i] = c.jt;
+    prevPX[i] = c.px; prevPY[i] = c.py;
   }
+}
 
+function finishStep(dt, t, W, H){
+  const fCap = Math.max(1, dt * 60);   // px-per-frame budgets, dt-honest
   /* nothing may ever be lost */
   for(const b of bodies){
     if(!isFinite(b.x + b.y + b.vx + b.vy + b.a + b.va)){
@@ -1587,52 +2137,199 @@ function step(t){
       b.poseCalm = true;
     }
     if(b.sim && b !== held){
-      if(b.x < 2) b.x = 2;
-      if(b.x > W - 2) b.x = W - 2;
-      if(b.y > H - 2) b.y = H - 2;
+      // lost-body guards only — a body fully outside a wall or wholly
+      // under the floor is put back in play. (These were hard 2px clamps
+      // once: a thin letter buried under a corner pile had its centroid
+      // pinned at y = H−2, teleported against the solver every frame,
+      // and the whole pile churned instead of settling.)
+      if(b.x < -b.rad) b.x = b.rad;
+      if(b.x > W + b.rad) b.x = W - b.rad;
+      if(b.y > H + b.rad) b.y = H - b.rad;
       if(!b.entering && b.y < -b.rad * 2) b.y = -b.rad * 2;
+    }
+    if(b.sim){
+      // time since last contact — the restitution gate only opens for
+      // bodies that actually flew (asleep counts as resting, not flying)
+      if(b.sleeping || b.touch) b.airT = 0; else b.airT += dt;
+      // deep in someone all frame: give the position solver PEN_WAKE_T
+      // to win. Then a sleeper wakes to yield; a slow awake body is
+      // walked out by the capped medic — a tunneled trio can otherwise
+      // jam churning just fast enough that the stillness bleed never
+      // runs while the capped position solver never gains ground.
+      // MEDIC_T of that with no cure — or MEDIC_T pinned in one spot
+      // while vibrating past BUZZ_V — escalates: a 3× walk-out, and any
+      // sleeper this body is still jammed deep against is woken so the
+      // load above can ride up out of the squeeze instead of pressing
+      // the fight closed from above
+      if(b.penDeep){
+        b.penT += dt;
+        b.penF = 0;
+        if(b.penT > PEN_WAKE_T){
+          if(b.sleeping) wakeIsland(b, false);
+          else if(b !== held && b.vx * b.vx + b.vy * b.vy < WEDGE_V * WEDGE_V){
+            const deep = pairPen(b);
+            const buzz = b.wstill > MEDIC_T &&
+                         b.vx * b.vx + b.vy * b.vy > BUZZ_V * BUZZ_V;
+            // the medic only handles real WOUNDS: tunnels past WEDGE_PEN,
+            // or a proven pinned buzz. Chronic 2-5px sandwich jams belong
+            // to the solver's squeeze-aware drain and the island assist —
+            // walking those every frame just shuffled three bodies in
+            // conflicting directions, migrated the pile sideways, and
+            // kiss-woke the neighborhood into 12s of churn
+            if(deep > WEDGE_PEN || buzz){
+              const esc = b.penT > MEDIC_T || buzz;
+              if(esc){
+                // ~2s proven stuck: ONE decisive poke, then stand back for
+                // another MEDIC_T (poking every frame was itself a churn
+                // engine that kept corner piles from stilling). A letter
+                // buried tip-first past WEDGE_PEN gets pulled straight out
+                // along its deepest CONTACT normal — the wound axis — in
+                // one move: the SAT-least-axis walk kept choosing sideways
+                // exits the surrounding pile blocks. Anything shallower
+                // takes the ordinary uncapped walk-out. Either way every
+                // sleeping CONTACT partner is woken (the roof of a squeeze
+                // is usually a frozen kiss, not the deep pair itself;
+                // kisses wake gently, deep partners hard) so the load can
+                // ride up rather than press the wound closed again
+                let bc = null, bp = WEDGE_PEN;
+                for(let ci = 0; ci < nContacts; ci++){
+                  const c = contacts[ci];
+                  if(c.b && (c.a === b || c.b === b) && c.pen0 > bp){
+                    bp = c.pen0; bc = c;
+                  }
+                }
+                if(bc){
+                  const dir = bc.a === b ? -1 : 1;
+                  b.x += dir * bc.nx * (bp - DEP_KISS);
+                  b.y += dir * bc.ny * (bp - DEP_KISS);
+                  depenetrate(b, W, H, 0);   // settle the pop: clear of walls,
+                } else                       // floor, and fresh grazes
+                  depenetrate(b, W, H, 0);
+                for(let ci = 0; ci < nContacts; ci++){
+                  const c = contacts[ci];
+                  if(!c.b) continue;
+                  const dp = c.pen0 > PEN_DEEP;
+                  if(c.a === b && c.b.sleeping) wakeIsland(c.b, !dp);
+                  else if(c.b === b && c.a.sleeping) wakeIsland(c.a, !dp);
+                }
+                b.penT = PEN_WAKE_T;
+                b.wstill = 0;
+              } else
+                // the walk-out cap scales with the wound: a 10px tunnel
+                // must drain faster than gravity re-sinks the load above
+                depenetrate(b, W, H,
+                  Math.max(WEDGE_FIX, deep * WEDGE_DRAIN) * fCap);
+            }
+          }
+        }
+      } else if(b.penT > 0){
+        // deep pens FLICKER at alternating dt (a sandwiched pair reads
+        // deep on the long frame, clean on the short one): the stuck
+        // clock forgives only after a genuinely clean half second, so
+        // the one body whose walk-out would free the column still gets
+        // its turn instead of being reset every other frame
+        b.penF += dt;
+        if(b.penF > .5) b.penT = 0;
+      }
     }
   }
 
   render(t);
 
-  // per-body sleep: genuinely still for a beat, then out cold —
-  // a throw's apex (speed ~0 for a frame) never freezes anything
+  // sleep, in two acts. Act one, per body: genuinely still for a beat —
+  // a throw's apex (speed ~0 for a frame) never counts. Two clocks run.
+  // The instantaneous gates catch clean rests; the drift window catches
+  // what they never will: a decaying rock or a wedged pair whose fight
+  // keeps the per-frame numbers spiky while the body hovers in one spot
+  // — hovering in one spot IS settled. While either clock runs, true
+  // overlap is bled a little every frame (dt-scaled, so a 30Hz display
+  // bleeds as many px/s as a 60Hz one), and the sleep frame itself has
+  // nothing left to snap. Passing here only marks the body ready.
   let anyAwake = false, anyWaiting = false, justSnapped = false;
   for(const b of bodies){
+    b.canSleep = 0;
     if(!b.sim){
       if(b.kind !== "toy" && mode === "live" && t < b.dropAt) anyWaiting = true;
       continue;
     }
-    if(b === held){ anyAwake = true; continue; }
-    if(b.sleeping) continue;
-    const slowV = Math.hypot(b.vx, b.vy) < SLEEP_LIN && Math.abs(b.va) < SLEEP_ANG;
+    if(b === held || b.sleeping) continue;
+    const spd = Math.hypot(b.vx, b.vy);
+    const fmv = Math.hypot(b.x - b.fpx, b.y - b.fpy);   // this frame's true move
+    b.fpx = b.x; b.fpy = b.y;
+    const slowV = spd < SLEEP_LIN && Math.abs(b.va) < SLEEP_ANG;
     const nearAnchor = Math.abs(b.x - b.sx) < SLEEP_DX &&
                        Math.abs(b.y - b.sy) < SLEEP_DX &&
                        Math.abs(b.a - b.sa) < SLEEP_DA;
     // (the r1 also may not sleep while its pose spring is still rocking)
-    if((slowV || nearAnchor) && !b.entering && (!b.tumbles || b.poseCalm)){
+    const settleable = !b.entering && (!b.tumbles || b.poseCalm);
+    if(settleable && b.touch && spd < WIN_V && Math.abs(b.va) < WIN_A &&
+       Math.abs(b.x - b.qx) < WIN_DX && Math.abs(b.y - b.qy) < WIN_DX &&
+       Math.abs(b.a - b.qa) < WIN_DA){
+      b.wstill += dt;
+    } else {
+      b.qx = b.x; b.qy = b.y; b.qa = b.a;
+      b.wstill = 0;
+    }
+    if(settleable && (slowV || nearAnchor)){
       // resting bodies still show spiky per-frame speeds (the solver's
       // heartbeat), so "hasn't actually gone anywhere" also counts as still
       b.still += dt;
-      if(b.still > SLEEP_T){
-        b.sleeping = true;
-        b.vx = b.vy = b.va = 0;
-        floorSnap(b, H);
-        depenetrate(b, W, H);   // nothing ever sleeps overlapping
-        justSnapped = true;
-        continue;
-      }
     } else {
       b.sx = b.x; b.sy = b.y; b.sa = b.a;
       b.still = 0;
     }
-    anyAwake = true;
+    if(b.still > 0 || b.wstill > SLEEP_T)
+      depenetrate(b, W, H, PRESLEEP_FIX * fCap);
+    // the move gate defers readiness off a position-solver jump frame —
+    // but only defers: a body the solver ping-pongs every single frame
+    // while its velocity reads still is a wedged fight, and freezing it
+    // IS the fix, so after 3× the normal wait it counts ready regardless
+    if((fmv < SLEEP_MV * fCap || b.still > SLEEP_T * 3) &&
+       (b.still > SLEEP_T || (b.wstill > SLEEP_WT && spd < WIN_STOP)))
+      b.canSleep = 1;
   }
+
+  // act two, per island: union-find over this frame's awake contact
+  // graph (sleeping bodies stay out — they are frozen scenery, and
+  // routing islands through them would chain strangers together). An
+  // island sleeps only when EVERY member is ready, all in one frame,
+  // through one collective capped de-penetration — so no member can
+  // sleep out of phase with a neighbor and pop it awake. A held member
+  // (or any unready one) keeps its whole island up.
+  const nB = bodies.length;
+  for(let i = 0; i < nB; i++){
+    bodies[i].bi = i;
+    islP[i] = i; islStill[i] = 1; islTried[i] = 0;
+  }
+  for(let i = 0; i < nContacts; i++){
+    const c = contacts[i];
+    if(!c.b || c.a.sleeping || c.b.sleeping) continue;
+    const ra = islFind(c.a.bi), rb = islFind(c.b.bi);
+    if(ra !== rb) islP[rb] = ra;
+  }
+  for(const b of bodies){
+    if(!b.sim || b.sleeping) continue;
+    if(b === held || !b.canSleep) islStill[islFind(b.bi)] = 0;
+  }
+  for(let i = 0; i < nB; i++){
+    const b = bodies[i];
+    if(!b.sim || b.sleeping || b === held || !b.canSleep) continue;
+    const r = islFind(i);
+    if(islTried[r]) continue;
+    islTried[r] = 1;
+    if(islStill[r] && islandSleep(r, W, H, t)) justSnapped = true;
+  }
+  for(const b of bodies)
+    if(b.sim && !b.sleeping) anyAwake = true;
 
   // a body snapped flush this frame was already painted pre-snap;
   // repaint so the loop never stops on a stale, ~1px-off frame
   if(justSnapped) render(t);
+
+  // no sleeper may float, none may stay frozen deep inside another
+  frameN++;
+  if((justSnapped || frameN % AUDIT_N === 0) && supportAudit(W, H))
+    anyAwake = true;
 
   const busy = held || mode === "homing" || anyAwake || anyWaiting ||
                any3DBusy();            // a 3D toy's pose may still be settling
@@ -1750,10 +2447,11 @@ function tumbleStep(b, dt){
 }
 
 /* re-cut the octagon at a new effective width. Verts only — mass and
-   inertia stay the face-on values. Fattening back up must shove
-   neighbours through the solver, so sleepers within reach are woken
-   rather than teleported through. */
+   inertia stay the face-on values. Only a FATTENING hull can shove
+   anyone, so only then are sleepers within reach woken rather than
+   teleported through — a narrowing hull disturbs no one. */
 function r1SetWidth(b, w){
+  const grew = w > b.hullW + .01;
   b.hullW = w;
   const w2 = w / 2, h2 = b.toyH / 2;
   const cx = Math.min(b.toyCut, w2 * .6);   // corners shrink so the slab stays convex
@@ -1767,16 +2465,26 @@ function r1SetWidth(b, w){
   v[5].x = -w2 + cx; v[5].y =  h2;
   v[6].x = -w2;      v[6].y =  h2 - cy;
   v[7].x = -w2;      v[7].y = -h2 + cy;
+  if(!grew) return;
   for(const o of bodies){
     if(o === b || !o.sleeping) continue;
-    if(Math.hypot(o.x - b.x, o.y - b.y) < o.rad + b.rad + 6) wake(o);
+    if(Math.hypot(o.x - b.x, o.y - b.y) < o.rad + b.rad + 6) wakeIsland(o, false);
   }
 }
-function r1TrackWidth(b){
+function r1TrackWidth(b, t){
+  // a grounded, slow toy keeps the hull it has: its pose is a beat from
+  // settled, and each re-cut is a real event to the pile around it —
+  // rate-limited even in flight so the hull steps, never buzzes
+  if(b.airT === 0 && b.vx * b.vx + b.vy * b.vy < R1_FREEZE_V * R1_FREEZE_V)
+    return;
+  if(t - b.lastRecut < R1_RECUT_MS) return;
   const thick = b.toyH * (b.thick3d || R1_THICK);  // never thinner than it is deep
   const eff = Math.max(thick,
     thick + (b.toyW - thick) * Math.abs(Math.cos(b.ry)));
-  if(Math.abs(eff - b.hullW) > R1_HULL_DW) r1SetWidth(b, eff);
+  if(Math.abs(eff - b.hullW) > R1_HULL_DW){
+    b.lastRecut = t;
+    r1SetWidth(b, eff);
+  }
 }
 
 function capHeightPx(F){
@@ -2038,7 +2746,7 @@ function makeRabbitGL(side){
           bb.rx = bb.ry = bb.wx = bb.wy = 0;
           bb.poseCalm = true;
           if(Math.abs(bb.hullW - bb.toyW) > .5) r1SetWidth(bb, bb.toyW);
-          wake(bb);
+          wakeIsland(bb, false);
           start();
         }
       } });
