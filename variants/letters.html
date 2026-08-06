@@ -408,9 +408,11 @@ if(devPanel && /dev/.test(location.search + location.hash)){
       if(onSet) onSet(w);
     });
   };
-  wire("devName", "--w-name", w => {
-    FONT_WT = String(w);
-    dispatchEvent(new Event("resize"));   // re-measure seats, re-trace hulls
+  wire("devName", "--w-name", reduced ? null : w => {
+    FONT_WT = String(w);                  // (reduced motion: CSS var alone is enough —
+    hullsBuilt = false;                   // the physics never initialized)
+    for(const k in HULLS) delete HULLS[k];
+    dispatchEvent(new Event("resize"));   // re-measure seats, rebuild hulls
   });
   wire("devMenu", "--w-menu");
   wire("devTop",  "--w-top");
@@ -430,10 +432,10 @@ const G          = 2000;   // gravity, px/s²
 const REST       = .35;    // restitution — a thud with a little life in it
 const REST_MIN   = 110;    // impacts slower than this don't bounce (px/s)
 const MU         = .4;     // Coulomb-ish friction coefficient
-const BAUM       = .2;     // positional correction strength per pass
+const BAUM       = .2;     // position-only correction per pass (velocities never see it)
 const SLOP       = .5;     // px of overlap we quietly allow
-const VEL_ITERS  = 3;      // velocity solver passes
-const POS_ITERS  = 2;      // position solver passes
+const VEL_ITERS  = 6;      // velocity solver passes
+const POS_ITERS  = 4;      // position solver passes
 const MAXV       = 3400;   // fling speed cap, px/s
 const LIN_DAMP   = .04;    // faint air drag, 1/s
 const ANG_DAMP   = .35;    // faint spin drag, 1/s
@@ -441,7 +443,7 @@ const SLEEP_LIN  = 9;      // px/s — under this a body counts as still
 const SLEEP_ANG  = .10;    // rad/s — same idea for spin
 const SLEEP_DX   = 1.5;    // px — or: barely drifted from where it settled
 const SLEEP_DA   = .03;    // rad — same idea for wobble
-const SLEEP_T    = .5;     // seconds of stillness before a body sleeps
+const SLEEP_T    = .35;    // seconds of stillness before a body sleeps
 const SETTLE_ANG = 6;      // extra spin damping while slow + touching, 1/s
 const SETTLE_LIN = 2;      // extra slide damping while slow + touching, 1/s
 const WAKE_V     = 80;     // contact approach speed that wakes a sleeper
@@ -449,12 +451,19 @@ const HULL_PX    = 128;    // size glyphs are rasterized at for tracing
 const HULL_MAXV  = 12;     // max vertices kept per glyph hull
 const TOY_DENS   = 1.4;    // toys are denser than letters
 const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
-const SND_BODY   = 200;    // letter-letter impact speed that earns a plink
-const SND_WALL   = 140;    // wall/floor impact speed that earns one
 const TAP_PX     = 8;      // pointer travel under this…
 const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
-const SQUASH_MS  = 260;    // #pd's tap reply: one squash-and-recover this long
 const IP_SIDE    = 1.52;   // iPhone canvas ÷ cap height (≈1.5× cap tall after margin)
+
+/* ---- the grip pin: a held body stays fully dynamic, tied to the finger
+   by a stiff critically-damped spring at the exact point it was caught */
+const HOLD_WN    = 40;     // pin stiffness as a frequency, rad/s (~0.1s settle)
+const HOLD_ZETA  = 1;      // critical damping — tight, no rubber-banding
+const HOLD_MASS  = 2.5;    // a held body counts this much heavier to the pile
+const HOLD_ADAMP = 2.5;    // swing-about-the-grip damping while held, 1/s
+const HOLD_SUB   = 10;     // pin substeps — the stiffness stays stable at 30fps
+const HOLD_ERR   = 150;    // px of pointer error the spring acts on (yank guard)
+const HOLD_WMAX  = 12;     // rad/s spin cap in the hand — no helicoptering
 
 /* ---- depth-tumble (the WebGL toys only; the flat r1 fallback has none) ---- */
 const R1_THICK      = .18;   // r1 depth ÷ height — its bake spans z ±0.1814 on a 2.0 model
@@ -462,7 +471,7 @@ const R1_DAMP_AIR   = 1.2;   // tumble decay while airborne, 1/s
 const R1_DAMP_GND   = 2.6;   // tumble decay while touching but still sliding, 1/s
 const R1_KICK_FLING = .002;  // fling speed (px/s) → tumble (rad/s)
 const R1_KICK_HIT   = .0032; // impact speed (px/s) → tumble (rad/s)
-const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (SND_WALL's idea of a hit)
+const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (px/s)
 const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays under ~1.5 turns
 const R1_DAMP_SET   = 3.5;   // grounded spin die-off, 1/s — it lands where it lands
 const R1_HULL_DW    = 2;     // px of width change that justifies re-cutting the collider
@@ -470,46 +479,14 @@ const R1_HULL_DW    = 2;     // px of width change that justifies re-cutting the
 let mode = "seated";    // seated | live | homing   (letters + pills — toys never seat)
 let raf = 0, lastT = 0;
 let held = null, pointerId = null;
-let grabDX = 0, grabDY = 0;   // the grip point: things hang from where you grabbed them
+let grabLX = 0, grabLY = 0;   // the grip anchor in BODY space — the exact caught point
 let tap = null;         // pill press bookkeeping — a short, still press activates
-let squashUntil = 0;    // while > now, #pd is mid-squash and the loop must run
 let spilled = false;
 const target = { x:0, y:0 };
 const samples = [];
 let gravX = 0, gravY = G;   // gravity vector — device tilt may rotate it; |g| stays G
 
 function seatRect(i){ return seats[i].getBoundingClientRect(); }
-
-/* ---- audio: lazy, gesture-gated, synthesized, quiet ---- */
-let AC = null, lastPlink = 0;
-function ensureAudio(){
-  try{
-    if(!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
-    if(AC.state === "suspended") AC.resume();
-  }catch(e){ AC = null; }
-}
-function tone(freq, glide, dur, gain, at){
-  if(!AC) return;
-  const t0 = AC.currentTime + (at || 0);
-  const o = AC.createOscillator(), g = AC.createGain();
-  o.type = "sine";
-  o.frequency.setValueAtTime(freq, t0);
-  o.frequency.exponentialRampToValueAtTime(Math.max(40, glide || freq), t0 + dur);
-  g.gain.setValueAtTime(.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain, t0 + .008);
-  g.gain.exponentialRampToValueAtTime(.0001, t0 + dur);
-  o.connect(g); g.connect(AC.destination);
-  o.start(t0); o.stop(t0 + dur + .03);
-}
-function plink(b, speed){
-  const now = performance.now();
-  if(now - lastPlink < 60) return;
-  lastPlink = now;
-  const s = Math.min(speed, 2000);
-  const base = b.toneBase || Math.max(120, 420 - b.rad * 2.2);  // small letters ring higher
-  const dur  = b.toneDur  || .08;                               // toys thunk longer + lower
-  tone(base + s * .06, base * .7, dur, Math.min(.09, .02 + (s / 2000) * .07));
-}
 
 /* ================================================================
    Glyph hulls — each unique character is rasterized once at 128px,
@@ -640,10 +617,11 @@ function buildHulls(){
 /* ---- rigid bodies ---- */
 const bodies = [];                 // 13 letters first; pills and toys join later
 const bodyByEl = new Map();
+let bodySeq = 0;                   // stable ids — the warm-start pair key
 
 function mkBody(el, kind){
   const b = {
-    el, kind, i:-1, ch:"",
+    el, kind, i:-1, ch:"", id:bodySeq++,
     x:0, y:0, a:0,               // centroid position + angle
     vx:0, vy:0, va:0,            // linear + angular velocity
     m:1, invM:1, I:1, invI:1,    // mass + moment of inertia about the centroid
@@ -655,14 +633,12 @@ function mkBody(el, kind){
     sleeping:false, still:0, sx:0, sy:0, sa:0, touch:0,
     homeDelay:0, homed:true, dropAt:0,
     entering:false,              // toys fall in from above the ceiling plane
-    toneBase:0, toneDur:0,
     draw3d:null,                 // a WebGL toy hangs its painter here
     tumbles:false,               // a 3D toy carries real depth-tumble state:
     rx:0, ry:0, wx:0, wy:0,      //   pitch/yaw + angular velocities (rad, rad/s)
     poseCalm:true, lastKick:0,   //   settled flag + impact-kick rate limiter
     thick3d:0,                   //   depth ÷ height, per model (r1 ≠ iPhone)
     toyW:0, toyH:0, toyCut:0, hullW:0,   // toy box + current depth-aware hull width
-    squashUntil:0,               // #pd's little tap reply, an end timestamp
   };
   for(let i = 0; i < HULL_MAXV; i++){ b.lv.push({x:0, y:0}); b.wv.push({x:0, y:0}); }
   bodyByEl.set(el, b);
@@ -859,14 +835,17 @@ function onDown(e){
       o.dropAt = 0;
     }
   }
-  ensureAudio();
   if(b.kind !== "toy" && mode === "live") b.dropAt = 0;  // a grabbed body falls now
   held = b;
   held.el.classList.add("held");
-  // respect the grip: the body hangs from where the finger caught it,
-  // never snapping its centre to the pointer
-  grabDX = b.x - e.clientX;
-  grabDY = b.y - e.clientY;
+  // the grip is a pin: keep the caught point in body space, so the body
+  // hangs, swings and is pushed about that exact point — never its centre
+  {
+    const gx = e.clientX - b.x, gy = e.clientY - b.y;
+    const c0 = Math.cos(b.a), s0 = Math.sin(b.a);
+    grabLX =  c0 * gx + s0 * gy;         // R(-angle) · (grip − centroid)
+    grabLY = -s0 * gx + c0 * gy;
+  }
   // a press on a pill might be a tap: remember where and when it began
   tap = b.kind === "pill"
     ? { b, t:performance.now(), x:e.clientX, y:e.clientY, path:0 }
@@ -874,7 +853,7 @@ function onDown(e){
   pointerId = e.pointerId;
   samples.length = 0;
   pushSample(e);
-  target.x = e.clientX + grabDX; target.y = e.clientY + grabDY;
+  target.x = e.clientX; target.y = e.clientY;   // the pin chases the finger itself
   document.body.classList.add("grabbing");
   wakeAll();                                   // a hand in the pile disturbs everything
   addEventListener("pointermove", onMove);
@@ -885,7 +864,7 @@ function onDown(e){
 }
 function onMove(e){
   if(e.pointerId !== pointerId) return;
-  target.x = e.clientX + grabDX; target.y = e.clientY + grabDY;
+  target.x = e.clientX; target.y = e.clientY;
   pushSample(e);
   if(tap){                                   // total travel, not net displacement
     tap.path += Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
@@ -907,7 +886,8 @@ function onUp(e){
       held.vy = (b.y - a.y) / dt;
       const sp = Math.hypot(held.vx, held.vy);
       if(sp > MAXV){ held.vx *= MAXV / sp; held.vy *= MAXV / sp; }
-      held.va = held.vx * .004 * (Math.random() < .5 ? -1 : 1);
+      // angular velocity is left alone — the body leaves the hand
+      // with whatever spin the pin dynamics actually gave it
     }
     if(held.tumbles){
       // a thrown r1 leaves the hand tumbling — mostly yaw for a sideways
@@ -1073,8 +1053,6 @@ pillEls.forEach((el, k) => {
   if(el.hidden) return;                // no body for a pill that isn't shown
   const b = mkBody(el, "pill");
   b.i = letters.length + k;            // seats[13..16], gaps where pills hide
-  b.toneBase = 170;                    // a chip knocks deeper than a letter
-  b.toneDur = .1;
   bodies.push(b);                      // geometry arrives at goLive, measured
 });
 
@@ -1124,22 +1102,33 @@ addEventListener("dblclick", goHome);
 /* ================================================================
    Contacts — AABB broadphase, SAT narrowphase with reference-face
    clipping (up to two contact points per pair), then a small
-   sequential-impulse solver with rotation, friction, and Baumgarte
-   positional cleanup. Everything below reuses preallocated objects;
-   the hot loop allocates nothing.
+   sequential-impulse solver with rotation, friction, warm-started
+   impulses (matched across frames by body pair + feature id) and
+   split-impulse positional cleanup: penetration is resolved by pure
+   position projection that never feeds the velocities, so piles rest
+   without buzzing. Everything below reuses preallocated objects; the
+   hot loop allocates nothing.
    ================================================================ */
 const contacts = [];
 for(let i = 0; i < 256; i++){
-  contacts.push({ a:null, b:null, px:0, py:0, nx:0, ny:0, pen:0,
+  contacts.push({ a:null, b:null, px:0, py:0, nx:0, ny:0, pen:0, fid:0,
                   rax:0, ray:0, rbx:0, rby:0, mN:1, mT:1, bias:0, jn:0, jt:0 });
 }
 let nContacts = 0;
 
-function addContact(A, B, px, py, nx, ny, pen){
+/* last frame's impulses, keyed by (body id, body id, feature id): each
+   frame's solve starts where the last one ended instead of from zero,
+   so stacks converge instead of re-shuddering every frame */
+const prevA = new Int32Array(256), prevB = new Int32Array(256),
+      prevF = new Int32Array(256);
+const prevJn = new Float64Array(256), prevJt = new Float64Array(256);
+let nPrev = 0;
+
+function addContact(A, B, px, py, nx, ny, pen, fid){
   if(nContacts >= contacts.length) return;
   const c = contacts[nContacts++];
   c.a = A; c.b = B; c.px = px; c.py = py; c.nx = nx; c.ny = ny;
-  c.pen = pen; c.jn = 0; c.jt = 0;
+  c.pen = pen; c.fid = fid; c.jn = 0; c.jt = 0;
 }
 
 function updateWorld(b){
@@ -1219,12 +1208,14 @@ function collidePoly(A, B){
   if(d1 < 0){ const t = d1 / (d1 - d2); p1x += (p2x - p1x) * t; p1y += (p2y - p1y) * t; }
   else if(d2 < 0){ const t = d2 / (d2 - d1); p2x += (p1x - p2x) * t; p2y += (p1y - p2y) * t; }
 
-  // keep whatever ended up behind the face; normal must point A -> B
+  // keep whatever ended up behind the face; normal must point A -> B.
+  // The feature id records which faces made each point — the warm-start key.
   const cnx = flip ? -nx : nx, cny = flip ? -ny : ny;
+  const fid = (flip ? 2048 : 0) | (edge << 7) | (bi << 3);
   let s1 = (p1x - v1x) * nx + (p1y - v1y) * ny;
-  if(s1 <= 0) addContact(A, B, p1x, p1y, cnx, cny, -s1);
+  if(s1 <= 0) addContact(A, B, p1x, p1y, cnx, cny, -s1, fid);
   let s2 = (p2x - v1x) * nx + (p2y - v1y) * ny;
-  if(s2 <= 0) addContact(A, B, p2x, p2y, cnx, cny, -s2);
+  if(s2 <= 0) addContact(A, B, p2x, p2y, cnx, cny, -s2, fid | 1);
 }
 
 /* walls and floor as planes; up to two deepest vertices per plane so a
@@ -1239,24 +1230,25 @@ function planePick(b, sideX, sideY, offset){
   }
 }
 function planeContacts(b, W, H){
+  // (plane feature ids live above 4096: plane index << 4, plus the vertex)
   // floor — the line the critique was about: hull verts, not a circle
   planePick(b, 0, 1, H);
-  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 0, 1, Math.max(pd1, 0));
-  if(pd2 > -1 && pi2 !== pi1) addContact(b, null, b.wv[pi2].x, b.wv[pi2].y, 0, 1, Math.max(pd2, 0));
+  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 0, 1, Math.max(pd1, 0), 4096 | pi1);
+  if(pd2 > -1 && pi2 !== pi1) addContact(b, null, b.wv[pi2].x, b.wv[pi2].y, 0, 1, Math.max(pd2, 0), 4096 | pi2);
   // left wall
   planePick(b, -1, 0, 0);
-  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, -1, 0, Math.max(pd1, 0));
+  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, -1, 0, Math.max(pd1, 0), 4096 | 16 | pi1);
   // right wall
   planePick(b, 1, 0, W);
-  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 1, 0, Math.max(pd1, 0));
+  if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 1, 0, Math.max(pd1, 0), 4096 | 32 | pi1);
   // ceiling — off while a toy is still dropping in from above
   if(!b.entering){
     planePick(b, 0, -1, 0);
-    if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 0, -1, Math.max(pd1, 0));
+    if(pd1 > -1) addContact(b, null, b.wv[pi1].x, b.wv[pi1].y, 0, -1, Math.max(pd1, 0), 4096 | 48 | pi1);
   }
 }
 
-/* precompute effective masses + restitution bias; fire impact sounds */
+/* precompute effective masses + restitution bias; apply warm-start impulses */
 function prepContact(c){
   const A = c.a, B = c.b;
   A.touch = 1; if(B) B.touch = 1;
@@ -1276,21 +1268,35 @@ function prepContact(c){
   let rvx = -(A.vx - A.va * c.ray), rvy = -(A.vy + A.va * c.rax);
   if(B){ rvx += B.vx - B.va * c.rby; rvy += B.vy + B.va * c.rbx; }
   const vn = rvx * c.nx + rvy * c.ny;
-  c.bias = vn < -REST_MIN ? -REST * vn : 0;
+  c.bias = vn < -REST_MIN ? -REST * vn : 0;   // resting contact: zero bounce
 
-  // an arriving impact wakes sleepers and earns a sound
+  // an arriving impact wakes sleepers
   if(vn < -WAKE_V){
     if(A.sleeping) wake(A);
     if(B && B.sleeping) wake(B);
   }
-  if(vn < -(B ? SND_BODY : SND_WALL)){
-    plink(B && B.rad < A.rad ? B : A, -vn);
-  }
-  // …and a hard-enough hit sends a 3D toy tumbling in depth (same
-  // pathway as the plink — no collision detection of its own)
+  // a hard-enough hit sends a 3D toy tumbling in depth (it rides the
+  // solver's contacts — no collision detection of its own)
   if(vn < -R1_KICK_MIN){
     if(A.tumbles) kickTumble(A, -vn, c.nx, c.ny);
     else if(B && B.tumbles) kickTumble(B, -vn, c.nx, c.ny);
+  }
+
+  // warm start: begin from the impulse this same contact carried last
+  // frame, applied up front, so the stack holds itself without re-impact
+  const ida = A.id, idb = B ? B.id : -1;
+  for(let k = 0; k < nPrev; k++){
+    if(prevA[k] === ida && prevB[k] === idb && prevF[k] === c.fid){
+      c.jn = prevJn[k]; c.jt = prevJt[k];
+      const px = c.jn * c.nx + c.jt * tx, py = c.jn * c.ny + c.jt * ty;
+      A.vx -= px * A.iM; A.vy -= py * A.iM;
+      A.va -= (c.rax * py - c.ray * px) * A.iI;
+      if(B){
+        B.vx += px * B.iM; B.vy += py * B.iM;
+        B.va += (c.rbx * py - c.rby * px) * B.iI;
+      }
+      break;
+    }
   }
 }
 
@@ -1360,41 +1366,69 @@ function floorSnap(b, H){
   if(d > -3 && d < 3) b.y += d;
 }
 
+/* one last de-penetration before a body sleeps: project it clear of the
+   walls and of everything nearby so nothing ever sleeps overlapping.
+   Position-only, moves only the sleeper-to-be, and measures TRUE overlap
+   with the SAT (clip points under-report angled overlaps). Planes go
+   last within each pass so the floor always has the final word.
+   (Sleeping bodies stay immovable to the position pass, so live bodies
+   are pushed OUT of them, never through.) */
+const depN = { x:0, y:0 };
+function depFaceNormal(A, e){
+  const j = (e + 1) % A.nv;
+  const ex = A.wv[j].x - A.wv[e].x, ey = A.wv[j].y - A.wv[e].y;
+  const il = 1 / (Math.hypot(ex, ey) || 1);
+  depN.x = ey * il; depN.y = -ex * il;
+}
+function depenetrate(b, W, H){
+  for(let pass = 0; pass < 6; pass++){
+    updateWorld(b);
+    let moved = false;
+    for(const o of bodies){
+      if(o === b || !o.col) continue;
+      if(b.minx > o.maxx || o.minx > b.maxx ||
+         b.miny > o.maxy || o.miny > b.maxy) continue;
+      maxSeparation(b, o); const sA = satRes.sep, eA = satRes.edge;
+      if(sA >= -.1) continue;
+      maxSeparation(o, b); const sB = satRes.sep, eB = satRes.edge;
+      if(sB >= -.1) continue;
+      // slide b out along the least-overlap axis, leaving a .1px kiss
+      if(sA >= sB){ depFaceNormal(b, eA); b.x -= depN.x * (-sA - .1); b.y -= depN.y * (-sA - .1); }
+      else        { depFaceNormal(o, eB); b.x += depN.x * (-sB - .1); b.y += depN.y * (-sB - .1); }
+      moved = true;
+      updateWorld(b);
+    }
+    // walls and floor, hard: flush is fine, inside is not
+    let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+    for(let i = 0; i < b.nv; i++){
+      const p = b.wv[i];
+      if(p.x < minx) minx = p.x; if(p.x > maxx) maxx = p.x;
+      if(p.y < miny) miny = p.y; if(p.y > maxy) maxy = p.y;
+    }
+    if(maxy > H){ b.y -= maxy - H; moved = true; }
+    if(minx < 0){ b.x -= minx; moved = true; }
+    if(maxx > W){ b.x -= maxx - W; moved = true; }
+    if(miny < 0 && !b.entering){ b.y -= miny; moved = true; }
+    if(!moved) break;
+  }
+}
+
 function step(t){
   raf = 0;
   const dt = Math.min(Math.max((t - lastT) / 1000, .0005), 1 / 30);
   lastT = t;
   const W = innerWidth, H = innerHeight;
 
-  // the held body is kinematic: infinite mass to everyone else, chasing
-  // the pointer with a spring lag, carrying real velocity so the pile
-  // feels it shoving through
-  if(held){
-    const k = 1 - Math.exp(-dt * 30);
-    const nx0 = held.x + (target.x - held.x) * k;
-    const ny0 = held.y + (target.y - held.y) * k;
-    held.vx = (nx0 - held.x) / dt;
-    held.vy = (ny0 - held.y) / dt;
-    held.va = 0;
-    held.x = nx0; held.y = ny0;
-    if(held.tumbles){
-      // carried: no posed tilt — residual spin just dies out in the hand
-      // and the toy hangs at whatever angle you caught it at
-      const dk = Math.exp(-dt * 4);
-      held.wx *= dk; held.wy *= dk;
-      held.rx = dAng(held.rx + held.wx * dt);
-      held.ry = dAng(held.ry + held.wy * dt);
-      held.poseCalm = false;               // it re-settles after release
-    }
-  }
-
-  // gravity + drag on everything awake
+  // gravity + drag on everything awake — the held body included: it
+  // stays fully dynamic, and the pin below is what carries it
   for(const b of bodies){
     b.sim = simActive(b, t);
     b.touch = 0;
-    b.iM = (b === held || b.sleeping) ? 0 : b.invM;
-    b.iI = (b === held || b.sleeping) ? 0 : b.invI;
-    if(!b.sim || b === held || b.sleeping) continue;
+    // held is never immovable — just modestly heavier to the pile, so a
+    // shove nudges it in the hand instead of knocking it off the finger
+    b.iM = b.sleeping ? 0 : (b === held ? b.invM / HOLD_MASS : b.invM);
+    b.iI = b.sleeping ? 0 : (b === held ? b.invI / HOLD_MASS : b.invI);
+    if(!b.sim || b.sleeping) continue;
     b.vx += gravX * dt;
     b.vy += gravY * dt;
     const dmp = 1 - LIN_DAMP * dt;
@@ -1402,6 +1436,55 @@ function step(t){
     b.va *= 1 - ANG_DAMP * dt;
     const sp = Math.hypot(b.vx, b.vy);
     if(sp > MAXV * 1.8){ b.vx *= MAXV * 1.8 / sp; b.vy *= MAXV * 1.8 / sp; }
+  }
+
+  // the grip is a pin: a stiff critically-damped spring at the exact
+  // caught point. Grabbed by the end of a stem, gravity torques the
+  // letter to hang and swing below the finger; grabbed at the centroid
+  // it carries with almost no turn. Velocity-substepped so the
+  // stiffness stays stable even at the 30fps dt clamp.
+  if(held){
+    const hb = held;
+    const c0 = Math.cos(hb.a), s0 = Math.sin(hb.a);
+    const rx = c0 * grabLX - s0 * grabLY;      // r = R(angle) · anchor
+    const ry = s0 * grabLX + c0 * grabLY;
+    let px = hb.x + rx, py = hb.y + ry;        // world anchor, advanced below
+    const mi = hb.invI / hb.invM;              // m/I — force at r into spin
+    const K2 = HOLD_WN * HOLD_WN, DD = 2 * HOLD_ZETA * HOLD_WN;
+    const h = dt / HOLD_SUB;
+    for(let s = 0; s < HOLD_SUB; s++){
+      let ex = target.x - px, ey = target.y - py;
+      const el = Math.hypot(ex, ey);           // yank guard: a pointer teleport
+      if(el > HOLD_ERR){ ex *= HOLD_ERR / el; ey *= HOLD_ERR / el; }
+      const vax = hb.vx - hb.va * ry;          // velocity of the anchor point
+      const vay = hb.vy + hb.va * rx;
+      const ax = K2 * ex - DD * vax;           // F/m at the anchor
+      const ay = K2 * ey - DD * vay;
+      hb.vx += ax * h;
+      hb.vy += ay * h;
+      hb.va += (rx * ay - ry * ax) * mi * h;   // (r × F)/I
+      px += (hb.vx - hb.va * ry) * h;          // virtual anchor keeps the spring
+      py += (hb.vy + hb.va * rx) * h;          // pointed right within the frame
+    }
+    // damp the swing ABOUT THE GRIP: shed the paired linear velocity too,
+    // or the pin just converts it back into spin — pendulums die politely
+    {
+      const dw = -HOLD_ADAMP * dt * hb.va;
+      hb.va += dw;
+      hb.vx += dw * ry;
+      hb.vy -= dw * rx;
+      if(hb.va >  HOLD_WMAX) hb.va =  HOLD_WMAX;
+      if(hb.va < -HOLD_WMAX) hb.va = -HOLD_WMAX;
+    }
+    if(hb.tumbles){
+      // carried: no posed tilt — residual spin just dies out in the hand
+      // and the toy hangs at whatever angle you caught it at
+      const dk = Math.exp(-dt * 4);
+      hb.wx *= dk; hb.wy *= dk;
+      hb.rx = dAng(hb.rx + hb.wx * dt);
+      hb.ry = dAng(hb.ry + hb.wy * dt);
+      hb.poseCalm = false;                     // it re-settles after release
+    }
   }
 
   // homing letters: simple kinematic springs to their seats, no collision —
@@ -1466,18 +1549,27 @@ function step(t){
     }
   }
 
-  // integrate positions
+  // integrate positions — the held body too: the pin is a force, not a
+  // hand of god, so the grab point tracks the finger through real motion
   for(const b of bodies){
-    if(!b.sim || b === held || b.sleeping) continue;
+    if(!b.sim || b.sleeping) continue;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.a += b.va * dt;
-    if(b.tumbles) tumbleStep(b, dt);       // the r1's depth-tumble rides along
+    if(b.tumbles && b !== held) tumbleStep(b, dt);  // held tumble damps above
     if(b.entering && b.y > b.rad + 6) b.entering = false;  // fully inside now
   }
 
   for(let it = 0; it < POS_ITERS; it++)
     for(let i = 0; i < nContacts; i++) solvePos(contacts[i]);
+
+  // remember this frame's impulses for next frame's warm start
+  nPrev = nContacts;
+  for(let i = 0; i < nContacts; i++){
+    const c = contacts[i];
+    prevA[i] = c.a.id; prevB[i] = c.b ? c.b.id : -1;
+    prevF[i] = c.fid; prevJn[i] = c.jn; prevJt[i] = c.jt;
+  }
 
   /* nothing may ever be lost */
   for(const b of bodies){
@@ -1527,6 +1619,7 @@ function step(t){
         b.sleeping = true;
         b.vx = b.vy = b.va = 0;
         floorSnap(b, H);
+        depenetrate(b, W, H);   // nothing ever sleeps overlapping
         justSnapped = true;
         continue;
       }
@@ -1542,7 +1635,6 @@ function step(t){
   if(justSnapped) render(t);
 
   const busy = held || mode === "homing" || anyAwake || anyWaiting ||
-               t < squashUntil ||      // #pd may still be mid-squash
                any3DBusy();            // a 3D toy's pose may still be settling
   if(busy) raf = requestAnimationFrame(step);
 }
@@ -1559,14 +1651,8 @@ function render(t){
       }
     }
     // place the centroid, rotate about it, then offset back to the box corner
-    // (#pd's tap squash slips in about the same centroid — purely cosmetic)
-    let sq = "";
-    if(b.squashUntil > t){
-      const s = Math.sin((1 - (b.squashUntil - t) / SQUASH_MS) * Math.PI) * .16;
-      sq = " scale(" + (1 + s).toFixed(3) + "," + (1 - s).toFixed(3) + ")";
-    }
     b.el.style.transform = "translate3d(" + b.x.toFixed(2) + "px," + b.y.toFixed(2) +
-      "px,0) rotate(" + b.a.toFixed(3) + "rad)" + sq + " translate(" +
+      "px,0) rotate(" + b.a.toFixed(3) + "rad)" + " translate(" +
       (-b.cx).toFixed(2) + "px," + (-b.cy).toFixed(2) + "px)";
     if(b.draw3d) b.draw3d(t, b);   // repaint the canvas sprite if it changed
   }
@@ -2014,8 +2100,6 @@ function spawnToy(which){
   b.a = (Math.random() - .5) * .5;
   b.va = (Math.random() - .5) * 1.8;       // a small tossed-in spin
   b.entering = true;                       // the ceiling looks away while it arrives
-  b.toneBase = which === "iphone" ? 132 : 104;   // toys thunk; glass a shade higher
-  b.toneDur = which === "iphone" ? .11 : .13;
   document.body.appendChild(spec.el);
   bodies.push(b);
   wake(b);
