@@ -182,7 +182,9 @@ a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent)
   border-color:var(--accent);
   color:var(--paper);
   font-weight:500;
-  padding:.34rem 1rem;
+  padding:.28rem .8rem;
+  font-size:.85rem;
+  white-space:nowrap;
 }
 .pill.cta:hover{ color:var(--paper); border-color:var(--accent); filter:brightness(1.08); }
 .pill.cta.live.held{ color:var(--paper); border-color:var(--accent); }
@@ -266,6 +268,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 .who{ margin:0; color:rgba(var(--ink),.6); font-weight:var(--w-top,500); }
 .who a{ color:var(--accent); text-decoration:none; }
 .who a:hover{ text-decoration:underline; text-underline-offset:.18em; }
+.reach{ display:flex; align-items:baseline; gap:1.1rem; }
 .corner-link{
   font-size:.95rem; color:rgba(var(--ink),.85);
   font-weight:var(--w-top,500);
@@ -345,7 +348,11 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 <section class="hero">
   <div class="corner fade" style="--d:0ms">
     <p class="who">Product Designer at <a href="https://todoist.com">Todoist</a></p>
-    <a class="corner-link" href="https://twitter.com/MichaelMofina" rel="me">Twitter</a>
+    <nav class="reach" aria-label="Contact">
+      <a class="corner-link" href="https://twitter.com/MichaelMofina" rel="me">Twitter</a>
+      <a class="corner-link" href="https://www.linkedin.com/in/michaelmofina" rel="me">LinkedIn</a>
+      <button class="pill cta" id="contact" type="button">Copy email</button>
+    </nav>
   </div>
 
   <h1 class="big fade" id="name" style="--d:80ms">
@@ -354,12 +361,10 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
   <div class="row fade" id="pillrow" style="--d:160ms">
     <button class="pill" id="shake" hidden>Shake it up</button>
-    <button class="pill cta" id="contact" type="button">info@michaelmofina.com</button>
   </div>
 
   <!-- invisible twin used only to know where the letters' and pills' seats are -->
   <div class="ghost" aria-hidden="true">
-    <div class="corner" id="gcorner"></div>
     <p class="big" id="ghostname"></p>
     <div class="row" id="grow"></div>
   </div>
@@ -1157,9 +1162,7 @@ addEventListener("pointerdown", onDown);
 
 /* what each pill does when tapped (or, seated, natively clicked) */
 function activatePill(b){
-  const el = b.el;
-  if(el.id === "contact") copyEmail(el);
-  else if(el.id === "shake") armTilt();
+  if(b.el.id === "shake") armTilt();
 }
 
 /* while a pill is physics, its native click must never fire — taps are
@@ -1278,10 +1281,8 @@ if(shakeBtn && hasTouch && typeof DeviceOrientationEvent !== "undefined"){
    wayfinding never falls. Reduced motion never reaches this code —
    the IIFE returned long ago.
    ================================================================ */
-const pillEls = [                      // only the under-name row falls now —
-  shakeBtn,                            // the corner is static wayfinding
-  document.getElementById("contact"),
-];
+const pillEls = [ shakeBtn ];          // the only chip that falls; everything
+                                       // else is static wayfinding in the corner
 const grow    = document.getElementById("grow");
 let ghostShake = null;
 pillEls.forEach((el, k) => {
