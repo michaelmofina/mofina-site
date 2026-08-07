@@ -67,7 +67,9 @@
 :root{
   --paper:#fdfdfb;
   --ink:22,22,22;
-  --accent:#d96400;
+  --accent-l:#c2410c;            /* the palette script overwrites this pair; */
+  --accent-d:#fb923c;            /* these two are the no-JS fallback */
+  --accent:var(--accent-l);
   color-scheme:light dark;
 }
 /* the page follows the system — no toggle. Warm near-black, warm
@@ -76,14 +78,14 @@
   :root{
     --paper:#141210;
     --ink:241,238,232;
-    --accent:#ffc53d;
+    --accent:var(--accent-d);
   }
 }
 /* hosted wrappers (e.g. the Claude artifact viewer) stamp their theme on
    the root — honor it in both directions so their toggle wins there;
    the real site never has data-theme and stays on the media query */
-:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:#ffc53d; }
-:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:#d96400; }
+:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:var(--accent-d); }
+:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:var(--accent-l); }
 
 *{ margin:0; padding:0; box-sizing:border-box; }
 
@@ -174,6 +176,17 @@ a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent)
   user-select:none;
   -webkit-user-select:none;
 }
+/* Get in touch — the one filled thing on the page, in the visit's accent */
+.pill.cta{
+  background:var(--accent);
+  border-color:var(--accent);
+  color:var(--paper);
+  font-weight:500;
+  padding:.34rem 1rem;
+}
+.pill.cta:hover{ color:var(--paper); border-color:var(--accent); filter:brightness(1.08); }
+.pill.cta.live.held{ color:var(--paper); border-color:var(--accent); }
+.pill.cta.copied{ filter:brightness(1.12); }
 .pill.live.held{ cursor:grabbing; color:var(--accent); border-color:var(--accent); }
 
 .row{ display:flex; align-items:center; gap:.9rem; }
@@ -249,37 +262,17 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
 
 
-/* ---- static wayfinding + the menu ---- */
+/* ---- static wayfinding ---- */
 .who{ margin:0; color:rgba(var(--ink),.6); font-weight:var(--w-top,500); }
 .who a{ color:var(--accent); text-decoration:none; }
 .who a:hover{ text-decoration:underline; text-underline-offset:.18em; }
-.menu-btn{
-  font:inherit; font-size:.95rem; color:rgba(var(--ink),.85);
+.corner-link{
+  font-size:.95rem; color:rgba(var(--ink),.85);
   font-weight:var(--w-top,500);
-  background:none; border:0; padding:0; cursor:pointer;
+  text-decoration:none;
   transition:color .2s ease;
 }
-.menu-btn:hover{ color:var(--accent); }
-.menu[hidden]{ display:none; }   /* hidden must beat display:flex */
-.menu{
-  position:fixed; inset:0; z-index:60;
-  background:var(--paper);
-  display:flex; flex-direction:column;
-  padding:1.75rem 1.5rem;
-}
-.menu-close{ align-self:flex-end; }
-.menu-nav{ margin:auto 0; display:flex; flex-direction:column; gap:1.2rem; }
-.menu-nav a{
-  font-size:clamp(2.2rem,7vw,4rem); line-height:1.1; letter-spacing:-.02em;
-  font-weight:var(--w-menu,350);   /* Book at rest… */
-  color:rgba(var(--ink),.87); text-decoration:none; width:fit-content;
-  transition:color .2s ease;
-}
-.menu-nav a:hover{ font-weight:var(--w-menu-hover,500); color:var(--accent); }  /* …Medium under the cursor */
-.menu-nav a[aria-current="page"]{ color:rgba(var(--ink),.4); }
-.menu.open .menu-nav a{ animation:fadeUp .45s cubic-bezier(.22,.61,.36,1) both; }
-.menu.open .menu-nav a:nth-child(2){ animation-delay:60ms; }
-.menu.open .menu-nav a:nth-child(3){ animation-delay:120ms; }
+.corner-link:hover{ color:var(--accent); }
 
 
 /* ---- dev weight lab: only exists when the URL says #dev ---- */
@@ -294,6 +287,13 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 .devpanel label{ display:flex; align-items:center; gap:.5rem; }
 .devpanel label span:first-child{ width:2.6rem; }
 .devpanel input{ width:130px; accent-color:var(--accent); }
+.devsw{ display:flex; gap:.3rem; align-items:center; margin-top:.15rem; }
+.devsw button{
+  width:18px; height:18px; border-radius:50%; cursor:pointer;
+  border:1px solid rgba(var(--ink),.25); padding:0; font:inherit; font-size:.6rem;
+  color:rgba(var(--ink),.7); background:none; line-height:1;
+}
+.devsw button[data-on="1"]{ box-shadow:0 0 0 2px rgba(var(--ink),.5); }
 .devpanel output{ width:2.2rem; text-align:right; font-variant-numeric:tabular-nums; }
 
 @media (prefers-reduced-motion: reduce){
@@ -301,13 +301,51 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   .fade{ opacity:1; transform:none; }
 }
 </style>
+<script>
+/* The accent is a living thing: a curated palette (each hue tuned twice —
+   deep for the light ground, bright for the dark), a different one each
+   visit, steady while you browse. #dev can lock one. */
+(() => {
+  const P = [
+    ["ember",  "#c2410c", "#fb923c"],
+    ["gold",   "#a16207", "#fbbf24"],
+    ["moss",   "#3f6212", "#a3e635"],
+    ["pine",   "#0f766e", "#5eead4"],
+    ["cobalt", "#1d4ed8", "#93c5fd"],
+    ["plum",   "#7e22ce", "#d8b4fe"]
+  ];
+  const apply = i => {
+    const p = P[i] || P[0], r = document.documentElement;
+    r.style.setProperty("--accent-l", p[1]);
+    r.style.setProperty("--accent-d", p[2]);
+    r.dataset.accent = p[0];
+    window.ACCENT_I = i;
+  };
+  let idx = null;
+  try {
+    const lock = localStorage.getItem("mm-accent");        // #dev lock wins
+    if(lock !== null && P[+lock]) idx = +lock;
+    else {
+      const seen = sessionStorage.getItem("mm-accent-visit");  // steady across pages
+      if(seen !== null && P[+seen]) idx = +seen;
+      else {
+        idx = Math.floor(Math.random() * P.length);
+        sessionStorage.setItem("mm-accent-visit", idx);
+      }
+    }
+  } catch(e){ idx = Math.floor(Math.random() * P.length); }  // private mode, etc.
+  window.ACCENTS = P;
+  window.applyAccent = apply;
+  apply(idx);
+})();
+</script>
 </head>
 <body>
 
 <section class="hero">
   <div class="corner fade" style="--d:0ms">
     <p class="who">Product Designer at <a href="https://todoist.com">Todoist</a></p>
-    <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="menu">Menu</button>
+    <a class="corner-link" href="https://twitter.com/MichaelMofina" rel="me">Twitter</a>
   </div>
 
   <h1 class="big fade" id="name" style="--d:80ms">
@@ -316,7 +354,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
   <div class="row fade" id="pillrow" style="--d:160ms">
     <button class="pill" id="shake" hidden>Shake it up</button>
-    <a class="pill" id="contact" href="mailto:info@michaelmofina.com">Get in touch</a>
+    <button class="pill cta" id="contact" type="button">info@michaelmofina.com</button>
   </div>
 
   <!-- invisible twin used only to know where the letters' and pills' seats are -->
@@ -326,19 +364,11 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
     <div class="row" id="grow"></div>
   </div>
 </section>
-<div class="menu" id="menu" hidden role="dialog" aria-modal="true" aria-label="Site menu">
-  <button class="menu-btn menu-close" id="menuClose">Close</button>
-  <nav class="menu-nav">
-    <a href="letters.html" aria-current="page">Home</a>
-    <a href="work.html">Work</a>
-    <a href="mailto:info@michaelmofina.com">Get in touch</a>
-  </nav>
-</div>
 
 <div class="devpanel" id="devpanel" hidden aria-hidden="true">
   <label><span>name</span><input type="range" id="devName" min="0" max="6" step="1" value="2"><output id="devNameV">400</output></label>
-  <label><span>menu</span><input type="range" id="devMenu" min="0" max="6" step="1" value="1"><output id="devMenuV">350</output></label>
   <label><span>top</span><input type="range" id="devTop" min="0" max="6" step="1" value="3"><output id="devTopV">500</output></label>
+  <div class="devsw" id="devAccents"></div>
 </div>
 
 
@@ -369,28 +399,6 @@ const letters = [...visname.querySelectorAll(".letter")];
 const seats   = [...ghostP.querySelectorAll(".letter")];
 
 
-/* ---- the menu: a full-screen room of its own. Wired before the
-   reduced-motion gate so it works everywhere; its Escape (capture
-   phase) outranks the reassembly listener while open. ---- */
-const menu = document.getElementById("menu");
-const menuBtn = document.getElementById("menuBtn");
-const menuClose = document.getElementById("menuClose");
-function setMenu(open){
-  menu.hidden = !open;
-  menu.classList.toggle("open", open);
-  menuBtn.setAttribute("aria-expanded", String(open));
-  const fc = open ? (menu.querySelector("a") || menuClose) : menuBtn;
-  if(fc && fc.focus) fc.focus();
-}
-menuBtn.addEventListener("click", () => setMenu(true));
-menuClose.addEventListener("click", () => setMenu(false));
-addEventListener("keydown", e => {
-  if(e.key === "Escape" && !menu.hidden){
-    setMenu(false);
-    e.stopImmediatePropagation();
-  }
-}, true);
-
 
 /* ---- dev weight lab (URL hash is exactly #dev — a stray "dev" in a
    query string like ?ref=devto must NOT open it): three sliders across
@@ -416,9 +424,86 @@ if(devPanel && location.hash === "#dev"){
     for(const k in HULLS) delete HULLS[k];
     dispatchEvent(new Event("resize"));   // re-measure seats, rebuild hulls
   });
-  wire("devMenu", "--w-menu");
   wire("devTop",  "--w-top");
+
+  /* accent swatches: click to lock one for good, ↻ to go back to
+     a fresh colour every visit */
+  const sw = document.getElementById("devAccents");
+  const dark = () => document.documentElement.dataset.theme === "dark" ||
+    (document.documentElement.dataset.theme !== "light" &&
+     matchMedia("(prefers-color-scheme: dark)").matches);
+  const paint = () => [...sw.querySelectorAll("button[data-i]")].forEach(b => {
+    b.style.background = window.ACCENTS[+b.dataset.i][dark() ? 2 : 1];
+    b.dataset.on = (+b.dataset.i === window.ACCENT_I) ? "1" : "0";
+  });
+  window.ACCENTS.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.dataset.i = i;
+    b.title = p[0];
+    b.addEventListener("click", () => {
+      window.applyAccent(i);
+      try{ localStorage.setItem("mm-accent", i); }catch(e){}
+      paint();
+    });
+    sw.appendChild(b);
+  });
+  const rnd = document.createElement("button");
+  rnd.textContent = "↻";
+  rnd.title = "back to a new colour each visit";
+  rnd.addEventListener("click", () => {
+    try{ localStorage.removeItem("mm-accent"); sessionStorage.removeItem("mm-accent-visit"); }catch(e){}
+    const i = Math.floor(Math.random() * window.ACCENTS.length);
+    window.applyAccent(i);
+    try{ sessionStorage.setItem("mm-accent-visit", i); }catch(e){}
+    paint();
+  });
+  sw.appendChild(rnd);
+  paint();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paint);
 }
+
+/* ---- the address copies itself. Wired before the reduced-motion gate
+   so it works whether or not the physics ever starts; the pill's box is
+   pinned while it's a physics body, so the confirmation never reflows
+   it out of its own collider. ---- */
+const EMAIL = "info@michaelmofina.com";
+let copyT = 0;
+function copyEmail(el){
+  const done = ok => {
+    clearTimeout(copyT);
+    el.textContent = ok ? "copied \u2713" : EMAIL;
+    el.classList.toggle("copied", ok);
+    if(ok) copyT = setTimeout(() => {
+      el.textContent = EMAIL;
+      el.classList.remove("copied");
+    }, 1600);
+  };
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(EMAIL).then(() => done(true), () => done(legacyCopy()));
+      return;
+    }
+  }catch(e){}
+  done(legacyCopy());
+}
+function legacyCopy(){                      // http, older Safari, denied permission
+  try{
+    const t = document.createElement("textarea");
+    t.value = EMAIL;
+    t.setAttribute("readonly", "");
+    t.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(t);
+    t.select();
+    const ok = document.execCommand("copy");
+    t.remove();
+    return ok;
+  }catch(e){ return false; }
+}
+const contactEl = document.getElementById("contact");
+contactEl.addEventListener("click", function(e){
+  if(this.classList.contains("live")) return;   // live taps come through activatePill
+  copyEmail(this);
+});
 
 if(reduced) return;   // the name simply stays a name; no toys, no handlers
 
@@ -927,6 +1012,8 @@ function goLive(){
       const br = Math.min(parseFloat(getComputedStyle(b.el).borderRadius) || 0,
                           r.height / 2, r.width / 2);
       setSlabGeometry(b, r.width, r.height, br * .75, PILL_DENS);
+      b.el.style.width = r.width + "px";        // frozen box: the copy
+      b.el.style.height = r.height + "px";      // confirmation can't reflow it
       b.x = r.left + b.cx;
       b.y = r.top + b.cy;
       b.vx = (Math.random() - .5) * 60;
@@ -1071,7 +1158,7 @@ addEventListener("pointerdown", onDown);
 /* what each pill does when tapped (or, seated, natively clicked) */
 function activatePill(b){
   const el = b.el;
-  if(el.id === "contact") location.href = el.href;
+  if(el.id === "contact") copyEmail(el);
   else if(el.id === "shake") armTilt();
 }
 
@@ -1244,6 +1331,7 @@ function seatAll(){
     if(b.kind === "toy") continue;
     b.el.classList.remove("live");
     b.el.style.transform = "";
+    if(b.kind === "pill"){ b.el.style.width = ""; b.el.style.height = ""; }
   }
   // nothing ever left its parent — dropping .live restores text flow, and
   // the pills are genuine focusable links and buttons again

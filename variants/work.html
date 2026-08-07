@@ -32,14 +32,16 @@
 :root{
   --paper:#fdfdfb;
   --ink:22,22,22;
-  --accent:#d96400;
+  --accent-l:#c2410c;            /* the palette script overwrites this pair; */
+  --accent-d:#fb923c;            /* these two are the no-JS fallback */
+  --accent:var(--accent-l);
   color-scheme:light dark;
 }
 @media (prefers-color-scheme: dark){
-  :root{ --paper:#141210; --ink:241,238,232; --accent:#ffc53d; }
+  :root{ --paper:#141210; --ink:241,238,232; --accent:var(--accent-d); }
 }
-:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:#ffc53d; }
-:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:#d96400; }
+:root[data-theme="dark"]{ --paper:#141210; --ink:241,238,232; --accent:var(--accent-d); }
+:root[data-theme="light"]{ --paper:#fdfdfb; --ink:22,22,22; --accent:var(--accent-l); }
 
 *{ margin:0; padding:0; box-sizing:border-box; }
 html, body{ background:var(--paper); }
@@ -159,6 +161,44 @@ h1{
   .fade{ opacity:1; transform:none; }
 }
 </style>
+<script>
+/* The accent is a living thing: a curated palette (each hue tuned twice —
+   deep for the light ground, bright for the dark), a different one each
+   visit, steady while you browse. #dev can lock one. */
+(() => {
+  const P = [
+    ["ember",  "#c2410c", "#fb923c"],
+    ["gold",   "#a16207", "#fbbf24"],
+    ["moss",   "#3f6212", "#a3e635"],
+    ["pine",   "#0f766e", "#5eead4"],
+    ["cobalt", "#1d4ed8", "#93c5fd"],
+    ["plum",   "#7e22ce", "#d8b4fe"]
+  ];
+  const apply = i => {
+    const p = P[i] || P[0], r = document.documentElement;
+    r.style.setProperty("--accent-l", p[1]);
+    r.style.setProperty("--accent-d", p[2]);
+    r.dataset.accent = p[0];
+    window.ACCENT_I = i;
+  };
+  let idx = null;
+  try {
+    const lock = localStorage.getItem("mm-accent");        // #dev lock wins
+    if(lock !== null && P[+lock]) idx = +lock;
+    else {
+      const seen = sessionStorage.getItem("mm-accent-visit");  // steady across pages
+      if(seen !== null && P[+seen]) idx = +seen;
+      else {
+        idx = Math.floor(Math.random() * P.length);
+        sessionStorage.setItem("mm-accent-visit", idx);
+      }
+    }
+  } catch(e){ idx = Math.floor(Math.random() * P.length); }  // private mode, etc.
+  window.ACCENTS = P;
+  window.applyAccent = apply;
+  apply(idx);
+})();
+</script>
 </head>
 <body>
 
