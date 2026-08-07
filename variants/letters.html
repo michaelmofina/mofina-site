@@ -262,6 +262,41 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
 }
 
+/* ---- what you're holding ----
+   The objects in the pile are portfolio pieces; a tumbling phone can't
+   say so on its own. While one is in hand a quiet line names it, low and
+   centred — well below the name and its row, well below the corner, and
+   out of the way of every control. Letters and pills say nothing. */
+.caption{
+  position:fixed;
+  left:0; right:0;               /* full width, text centred — a left:50% box
+                                    shrink-to-fits and wraps on a narrow phone */
+  bottom:20%;
+  text-shadow:0 0 6px var(--paper), 0 0 14px var(--paper);  /* halo, not a box */
+  z-index:20;                    /* over the sprites (8–9), under the dev panel (80) */
+  padding:0 1.5rem;
+  text-align:center;
+  font-size:.85rem;
+  letter-spacing:.01em;
+  line-height:1.4;
+  color:rgba(var(--ink),.62);
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(2px);
+  transition:opacity .35s ease, transform .35s ease;      /* the way out */
+}
+.caption.on{
+  opacity:1;
+  transform:none;
+  transition:opacity .22s ease,                           /* …and the way in */
+             transform .22s cubic-bezier(.22,.61,.36,1);
+}
+/* a short viewport puts 12% right in the middle of the pile — sit just
+   above the floor there instead, under everything rather than through it */
+@media (max-height: 540px){
+  .caption{ bottom:.6rem; }
+}
+
 
 
 /* ---- static wayfinding ---- */
@@ -370,6 +405,10 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   </div>
 </section>
 
+<!-- named on pickup: filled only while an OBJECT is held, then faded out.
+     Real text, politely announced, so the label reaches a screen reader too. -->
+<p class="caption" id="caption" aria-live="polite"></p>
+
 <div class="devpanel" id="devpanel" hidden aria-hidden="true">
   <label><span>name</span><input type="range" id="devName" min="0" max="6" step="1" value="2"><output id="devNameV">400</output></label>
   <label><span>top</span><input type="range" id="devTop" min="0" max="6" step="1" value="3"><output id="devTopV">500</output></label>
@@ -474,12 +513,13 @@ if(devPanel && location.hash === "#dev"){
 const EMAIL = "info@michaelmofina.com";
 let copyT = 0;
 function copyEmail(el){
+  const rest = el.dataset.label || (el.dataset.label = el.textContent);  // its own words
   const done = ok => {
     clearTimeout(copyT);
-    el.textContent = ok ? "copied \u2713" : EMAIL;
+    el.textContent = ok ? "copied \u2713" : rest;
     el.classList.toggle("copied", ok);
     if(ok) copyT = setTimeout(() => {
-      el.textContent = EMAIL;
+      el.textContent = rest;
       el.classList.remove("copied");
     }, 1600);
   };
@@ -511,6 +551,32 @@ contactEl.addEventListener("click", function(e){
 });
 
 if(reduced) return;   // the name simply stays a name; no toys, no handlers
+
+/* ================================================================
+   The caption — the objects in the pile are portfolio pieces, so a
+   held one says what it is. It fades in under the finger, lingers a
+   beat after release, then goes. Only bodies of kind "toy" carry a
+   label: letters and pills are the page, not the work. Reduced
+   motion never reaches this code (nothing is ever grabbed there), so
+   the element simply stays empty and invisible.
+   ================================================================ */
+const CAP_HOLD = 1400;                 // ms the label lingers after release
+const capEl = document.getElementById("caption");
+let capT = 0;
+function showCaption(text){
+  if(!capEl || !text) return;
+  clearTimeout(capT);                  // catching a second object swaps the words
+  capEl.textContent = text;            // in place — already visible, so no
+  capEl.classList.add("on");           // fade out and back in
+}
+function hideCaption(){
+  if(!capEl) return;
+  clearTimeout(capT);
+  capT = setTimeout(() => {
+    capEl.classList.remove("on");
+    setTimeout(() => { if(!capEl.classList.contains("on")) capEl.textContent = ""; }, 400);
+  }, CAP_HOLD);
+}
 
 /* ================================================================
    Physics — 13 rigid letters (plus two pills and two toys, later)
@@ -857,6 +923,7 @@ function mkBody(el, kind){
     poseCalm:true, lastKick:0,   //   settled flag + impact-kick rate limiter
     thick3d:0,                   //   depth ÷ height, per model (r1 ≠ iPhone)
     toyW:0, toyH:0, toyCut:0, hullW:0,   // toy box + current depth-aware hull width
+    label:"",                    // what it says when picked up (toys only)
   };
   for(let i = 0; i < HULL_MAXV; i++){ b.lv.push({x:0, y:0}); b.wv.push({x:0, y:0}); }
   bodyByEl.set(el, b);
@@ -907,7 +974,8 @@ function removeBody(b){
     pointerId = null;
     held = null;
     tap = null;
-  }
+    if(b.kind === "toy") hideCaption();   // an object pried out of the hand
+  }                                       // still fades its name out normally
   const k = bodies.indexOf(b);
   if(k >= 0) bodies.splice(k, 1);
   bodyByEl.delete(b.el);
@@ -1083,6 +1151,8 @@ function onDown(e){
   if(b.kind !== "toy" && mode === "live") b.dropAt = 0;  // a grabbed body falls now
   held = b;
   held.el.classList.add("held");
+  if(b.kind === "toy") showCaption(b.label);   // objects name themselves
+  else hideCaption();                          // a second finger on a letter ends it
   // the grip is a pin: keep the caught point in body space, so the body
   // hangs, swings and is pushed about that exact point — never its centre
   {
@@ -1151,6 +1221,9 @@ function onUp(e){
     const wasTap = tap && tap.b === held && e.type === "pointerup" &&
                    tap.path <= TAP_PX && performance.now() - tap.t < TAP_MS;
     held.el.classList.remove("held");
+    hideCaption();                             // …and let go of the name too
+                                               // (unconditional: a stolen grab
+                                               // must never strand the label)
     wake(held);
     held = null;
     if(wasTap) activatePill(tap.b);
@@ -1342,7 +1415,7 @@ function seatAll(){
 addEventListener("keydown", e => { if(e.key === "Escape") goHome(); });
 // double-click reassembles the scene — but never from inside the open
 // menu, where a double-click is just enthusiasm for a link
-addEventListener("dblclick", () => { if(menu.hidden) goHome(); });
+addEventListener("dblclick", goHome);
 
 /* ================================================================
    Contacts — AABB broadphase, SAT narrowphase with reference-face
@@ -2608,7 +2681,7 @@ function makeRabbit(side){
 /* ================================================================
    The 3D toys — baked meshes drawn by a tiny hand-rolled WebGL1
    renderer, one shader family, two paths: a textured path (the
-   r1's baseColor skin, the iPhone's wallpaper OLED) and a
+   r1's baseColor skin, the iPhone's runtime-drawn OLED) and a
    vertex-colored path (the iPhone's body, whose 17 materials were
    baked to per-vertex sRGB). Two-light lambert plus a soft rim so
    black faces still read. The solver's in-plane angle is untouched
@@ -2722,19 +2795,26 @@ function makeModelGL(batches, side, opts){
                 zb:bt.zb || 0 };
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, d.ibo);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, bt.idx, gl.STATIC_DRAW);
-    if(bt.tex){
-      // 1px stand-in until the embedded JPEG decodes (ms)
+    // every textured batch owns a texture, even if its source never
+    // arrives — the sampler must never read whatever happens to be bound
+    if(bt.uv){
+      // 1px stand-in: the r1's embedded JPEG takes ms to decode, and a
+      // runtime-drawn canvas is uploaded on the very first paint
       d.tex = gl.createTexture();
       gl.bindTexture(gl.TEXTURE_2D, d.tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, 1, 1, 0, gl.RGB, gl.UNSIGNED_BYTE,
-                    new Uint8Array(bt.fill));
+                    new Uint8Array(bt.fill || [255, 255, 255]));
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      const img = new Image();
-      img.onload = () => { d.img = img; dirty = true; start(); };
-      img.src = bt.tex;
+      if(bt.canvas){
+        d.img = bt.canvas;            // already drawn: no decode to wait on
+      } else if(bt.tex){
+        const img = new Image();
+        img.onload = () => { d.img = img; dirty = true; start(); };
+        img.src = bt.tex;
+      }
     }
     return d;
   });
@@ -2785,13 +2865,15 @@ function makeModelGL(batches, side, opts){
     for(const d of draws){
       const L = d.loc;
       gl.useProgram(L.prog);
-      if(d.img){                      // the real baseColor arrived: upload once
+      if(d.img){                      // the real skin arrived: upload once
         gl.bindTexture(gl.TEXTURE_2D, d.tex);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, d.img);
         if(!(d.img.width & (d.img.width - 1)) &&
            !(d.img.height & (d.img.height - 1))){
-          // the 512² r1 skin mipmaps; the 235-wide wallpaper is NPOT
-          // and must stay LINEAR + CLAMP in WebGL1
+          // both real skins are power-of-two and mipmap — the 512² r1
+          // baseColor and the 512×1024 phone screen. Anything NPOT would
+          // have to stay LINEAR + CLAMP in WebGL1, which the 1px stand-in
+          // parameters above already are.
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         }
@@ -2841,11 +2923,134 @@ function makeRabbitGL(side){
       } });
 }
 
-/* the iPhone — vertex-colored body plus the textured OLED, straight
-   from iphone-mesh.js. Its hull is the phone slab, narrower than the
-   square canvas it draws on; its depth ratio comes from the bake
-   header. No mesh, no WebGL, or a lost context: it spawns nothing and
-   removes itself — there is no flat iPhone anymore. */
+/* ================================================================
+   The phone's screen — drawn, not photographed.
+
+   The OLED used to sample the wallpaper JPEG baked into the mesh
+   (window.IPHONE_MESH.screen.tex). It now samples a screen we draw
+   ourselves at runtime, so the object in the pile shows Michael's own
+   work: a stylized Ramble capture sheet, built out of rectangles and
+   circles. It is deliberately NOT a pixel-copy of a real screenshot —
+   no type, no logotype, just the shapes you'd recognize it by from
+   across a room, which is the only distance this thing is ever seen at.
+
+   TO SWAP IN THE REAL EXPORT: replace drawRambleScreen() — this one
+   function — with something that paints a loaded PNG into the same
+   512×1024 canvas and returns it. Nothing else moves: the screen
+   geometry, the UV convention (top-left origin V, no UNPACK_FLIP_Y),
+   the .008 depth nudge past the cover glass and the texture parameters
+   all stay exactly as they are. Keep the canvas power-of-two if you
+   want the mipmaps — at the size this phone renders, they are what
+   stops the whole screen from shimmering as it tumbles.
+
+   The baked wallpaper is left in iphone-mesh.js untouched (that file is
+   generated, do not edit); it simply isn't sampled any more.
+   ================================================================ */
+const SCR_W = 512, SCR_H = 1024;   // power-of-two both ways: uploads mipmap
+const SCR_ASPECT = 1.0845;   // screen quad height ÷ texture height
+const SCR_PAPER  = "#fdfdfb";      // app ground — the site's own paper
+const SCR_CHROME = "#e6e6e1";      // status strip marks
+const SCR_TITLE  = "#2a2a28";      // the title line
+const SCR_ROW    = "#dcdcd7";      // task text bars
+const SCR_RING   = "#c9c9c3";      // task check outlines, home indicator
+const SCR_RED    = "#e44332";      // Todoist red — waveform + record button
+
+/* fill a rounded rect by hand — ctx.roundRect is too new to lean on */
+function scrRRect(c, x, y, w, h, r){
+  const k = Math.min(r, w / 2, h / 2);
+  c.beginPath();
+  c.moveTo(x + k, y);
+  c.arcTo(x + w, y,     x + w, y + h, k);
+  c.arcTo(x + w, y + h, x,     y + h, k);
+  c.arcTo(x,     y + h, x,     y,     k);
+  c.arcTo(x,     y,     x + w, y,     k);
+  c.closePath();
+  c.fill();
+}
+
+/* returns the drawn canvas, or null if 2D is unavailable — the batch
+   then keeps its 1px near-white stand-in and the phone shows a blank
+   screen instead of throwing */
+function drawRambleScreen(){
+  let c = null;
+  try{
+    const cv = document.createElement("canvas");
+    cv.width = SCR_W; cv.height = SCR_H;
+    c = cv.getContext("2d");
+    if(!c) return null;
+
+    // the screen quad is SCR_ASPECT taller than this texture: draw in true
+    // proportions, squash into the texture, and the quad stretches it back
+    // so circles arrive round
+    c.setTransform(1, 0, 0, 1 / SCR_ASPECT, 0, 0);
+
+    c.fillStyle = SCR_PAPER;
+    c.fillRect(0, 0, SCR_W, SCR_H * SCR_ASPECT);
+
+    // status strip: a time chip and two indicators, nothing legible
+    c.fillStyle = SCR_CHROME;
+    scrRRect(c, 44, 30, 64, 16, 8);
+    scrRRect(c, 376, 31, 36, 14, 7);
+    scrRRect(c, 424, 31, 46, 14, 7);
+
+    // the title line
+    c.fillStyle = SCR_TITLE;
+    scrRRect(c, 44, 104, 236, 28, 14);
+
+    // four task rows — an open check circle, then a bar of its own width
+    const ROW_W = [312, 244, 348, 208];
+    c.lineWidth = 4;
+    for(let i = 0; i < ROW_W.length; i++){
+      const y = 212 + i * 82;
+      c.strokeStyle = SCR_RING;
+      c.beginPath();
+      c.arc(68, y + 12, 16, 0, Math.PI * 2);
+      c.stroke();
+      c.fillStyle = SCR_ROW;
+      scrRRect(c, 108, y, ROW_W[i], 24, 12);
+    }
+
+    // the hero: a voice-capture waveform. 18 rounded bars under a fat
+    // envelope, roughened by a fixed wobble so it reads as a voice and
+    // not a sine — deterministic, so every phone draws the same screen
+    const BARS = 18, bw = 12, gap = 11, midY = 700, tall = 190;
+    let x = (SCR_W - (BARS * bw + (BARS - 1) * gap)) / 2;
+    c.fillStyle = SCR_RED;
+    for(let i = 0; i < BARS; i++){
+      const u = i / (BARS - 1);
+      const env = .28 + .72 * Math.sin(Math.PI * u);
+      const h = Math.max(bw, tall * env *
+                (.55 + .45 * Math.abs(Math.sin(u * 11.3 + 1.1))));
+      scrRRect(c, x, midY - h / 2, bw, h, bw / 2);
+      x += bw + gap;
+    }
+
+    // …and the record button beneath it
+    c.beginPath();
+    c.arc(SCR_W / 2, 908, 48, 0, Math.PI * 2);
+    c.fill();
+    c.globalAlpha = .3;
+    c.strokeStyle = SCR_RED;
+    c.lineWidth = 4;
+    c.beginPath();
+    c.arc(SCR_W / 2, 908, 63, 0, Math.PI * 2);
+    c.stroke();
+    c.globalAlpha = 1;
+
+    // home indicator
+    c.fillStyle = SCR_RING;
+    scrRRect(c, SCR_W / 2 - 68, 1054, 136, 10, 5);
+
+    return cv;
+  }catch(err){ return null; }
+}
+
+/* the iPhone — vertex-colored body plus the drawn OLED. The geometry
+   is straight from iphone-mesh.js; only the screen's pixels are ours.
+   Its hull is the phone slab, narrower than the square canvas it draws
+   on; its depth ratio comes from the bake header. No mesh, no WebGL, or
+   a lost context: it spawns nothing and removes itself — there is no
+   flat iPhone anymore. */
 function makeIphoneGL(side){
   const M = window.IPHONE_MESH;
   if(!M || !M.solid || !M.screen || !M.solid.pos || !M.solid.rgb ||
@@ -2858,8 +3063,10 @@ function makeIphoneGL(side){
   return makeModelGL(
     [{ pos:M.solid.pos, nrm:M.solid.nrm, rgb:M.solid.rgb, idx:M.solid.idx },
      { pos:M.screen.pos, nrm:M.screen.nrm, uv:M.screen.uv, idx:M.screen.idx,
-       tex:M.screen.tex, fill:[10, 10, 12],     // near-black until the wallpaper lands
+       canvas:drawRambleScreen(),               // (M.screen.tex, the baked
+       fill:[253, 253, 251],                    // wallpaper, is no longer
        zb:.008 }],   // lift the OLED past its opaque-baked cover glass (Δz .0126)
+                     // sampled — it stays in the generated mesh file, unused)
     side,
     { w, h, cut:Math.round(w * .14), thick:M.thickness || .0886,
       onLost:el => {
@@ -2867,6 +3074,13 @@ function makeIphoneGL(side){
         if(bb) removeBody(bb); else el.remove();
       } });
 }
+
+/* what each object says when you pick it up — the pile is a portfolio,
+   and this is the only place the pieces are named */
+const TOY_LABELS = {
+  r1:     "rabbit r1 — interface design, 2024",
+  iphone: "Ramble for Todoist — voice capture, 2025"
+};
 
 function spawnToy(which){
   if(!hullsBuilt) buildHulls();
@@ -2891,6 +3105,7 @@ function spawnToy(which){
     b.poseCalm = false;
   }
   b.ch = which;
+  b.label = TOY_LABELS[which] || "";
   b.x = innerWidth * (which === "iphone" ? .65 : .35);
   b.y = which === "iphone" ? -(b.rad + 40) : -150;   // the slab is tall: clear the ceiling
   b.vx = 0; b.vy = 0;
