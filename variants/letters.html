@@ -299,6 +299,24 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
 
 
+/* An object in hand floods the page with its own world: rabbit's RAL 2005
+   for the r1, Ramble's gradient for the phone. Marks go dark for the
+   duration — both floods are bright, in either theme. */
+.flood{
+  position:fixed; inset:0;
+  opacity:0; pointer-events:none;
+  transition:opacity .24s ease;
+}
+.flood.on{ opacity:1; }
+:root.flooded{ --ink:22,22,22; --accent:#161616; }
+/* the floods are bright in either theme, so chips stop following the
+   theme for the duration: paper chips, one dark chip, dark marks */
+:root.flooded .pill{
+  background:#fdfdfb; color:rgba(22,22,22,.7); border-color:rgba(22,22,22,.25);
+}
+:root.flooded .pill.cta{ background:#161616; color:#fdfdfb; border-color:#161616; }
+.big, .who, .who a, .corner-link, .caption{ transition:color .24s ease; }
+
 /* ---- static wayfinding ---- */
 .who{ margin:0; color:rgba(var(--ink),.6); font-weight:var(--w-top,500); }
 .who a{ color:var(--accent); text-decoration:none; }
@@ -379,6 +397,8 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 </script>
 </head>
 <body>
+
+<div class="flood" id="flood" aria-hidden="true"></div>
 
 <section class="hero">
   <div class="corner fade" style="--d:0ms">
@@ -569,6 +589,19 @@ function showCaption(text){
   capEl.textContent = text;            // in place — already visible, so no
   capEl.classList.add("on");           // fade out and back in
 }
+const floodEl = document.getElementById("flood");
+function floodOn(spec){
+  if(!floodEl || !spec) return;
+  floodEl.style.background = spec;
+  floodEl.classList.add("on");
+  document.documentElement.classList.add("flooded");
+}
+function floodOff(){
+  if(!floodEl) return;
+  floodEl.classList.remove("on");
+  document.documentElement.classList.remove("flooded");
+}
+
 function hideCaption(){
   if(!capEl) return;
   clearTimeout(capT);
@@ -974,7 +1007,7 @@ function removeBody(b){
     pointerId = null;
     held = null;
     tap = null;
-    if(b.kind === "toy") hideCaption();   // an object pried out of the hand
+    if(b.kind === "toy"){ hideCaption(); floodOff(); }  // pried out of the hand
   }                                       // still fades its name out normally
   const k = bodies.indexOf(b);
   if(k >= 0) bodies.splice(k, 1);
@@ -1151,8 +1184,13 @@ function onDown(e){
   if(b.kind !== "toy" && mode === "live") b.dropAt = 0;  // a grabbed body falls now
   held = b;
   held.el.classList.add("held");
-  if(b.kind === "toy") showCaption(b.label);   // objects name themselves
-  else hideCaption();                          // a second finger on a letter ends it
+  if(b.kind === "toy"){
+    showCaption(b.label);                      // objects name themselves…
+    floodOn(b.flood);                          // …and bring their world with them
+  } else {
+    hideCaption();                             // a second finger on a letter ends it
+    floodOff();
+  }
   // the grip is a pin: keep the caught point in body space, so the body
   // hangs, swings and is pushed about that exact point — never its centre
   {
@@ -1222,6 +1260,7 @@ function onUp(e){
                    tap.path <= TAP_PX && performance.now() - tap.t < TAP_MS;
     held.el.classList.remove("held");
     hideCaption();                             // …and let go of the name too
+    floodOff();                                // the page comes back
                                                // (unconditional: a stolen grab
                                                // must never strand the label)
     wake(held);
@@ -3081,6 +3120,13 @@ const TOY_LABELS = {
   r1:     "rabbit r1 — interface design, 2024",
   iphone: "Ramble for Todoist — voice capture, 2025"
 };
+/* the world each object drags onto the page while you hold it.
+   r1: RAL 2005 Leuchtorange, the shell's own colour.
+   iphone: PLACEHOLDER for Ramble's gradient — swap in the real stops. */
+const TOY_FLOOD = {
+  r1:     "#ff4d06",
+  iphone: "linear-gradient(158deg,#ffa04d 0%,#e44332 52%,#b4275e 100%)"
+};
 
 function spawnToy(which){
   if(!hullsBuilt) buildHulls();
@@ -3106,6 +3152,7 @@ function spawnToy(which){
   }
   b.ch = which;
   b.label = TOY_LABELS[which] || "";
+  b.flood = TOY_FLOOD[which] || "";
   b.x = innerWidth * (which === "iphone" ? .65 : .35);
   b.y = which === "iphone" ? -(b.rad + 40) : -150;   // the slab is tall: clear the ceiling
   b.vx = 0; b.vy = 0;
