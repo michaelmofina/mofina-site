@@ -293,8 +293,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   color:rgba(var(--ink),.62);
   pointer-events:none;
   opacity:0;
-  transform:translateY(2px);
-  transition:opacity .35s ease, transform .35s ease;      /* the way out */
+  transition:opacity .35s ease;                           /* the way out */
 }
 .caption.on{
   opacity:1;
@@ -325,17 +324,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 :root.flooded .pill{
   background:#fdfdfb; color:rgba(22,22,22,.7); border-color:rgba(22,22,22,.25);
 }
-:root.flooded .cta .lbl{
-  grid-area:1 / 1;
-  transition:opacity .18s ease;
-}
-.cta .lbl.b{ opacity:0; }        /* …the confirmation waits underneath */
-.cta.copied .lbl.a{ opacity:0; }
-.cta.copied .lbl.b{ opacity:1; }
-.pill.cta{
-  display:grid;                  /* both labels share one cell, so the chip is
-                                    as wide as the wider of them — and stays */
-  place-items:center; background:#161616; color:#fdfdfb; border-color:#161616; }
+:root.flooded .pill.cta{ background:#161616; color:#fdfdfb; border-color:#161616; }
 .big, .who, .who a, .corner-link, .caption{ transition:color .24s ease; }
 
 /* ---- static wayfinding ---- */
@@ -582,7 +571,7 @@ function legacyCopy(){                      // http, older Safari, denied permis
 }
 const contactEl = document.getElementById("contact");
 contactEl.addEventListener("click", function(e){
-  if(this.classList.contains("live")) return;   // live taps come through activatePill
+  if(this.classList.contains("live")) return;   // a dragged chip must not navigate
   copyEmail(this);
 });
 
@@ -743,7 +732,12 @@ const TOY_DENS   = 1.4;    // toys are denser than letters
 const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const TAP_PX     = 8;      // pointer travel under this…
 const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
-const IP_SIDE    = 1.52;   // iPhone canvas ÷ cap height (≈1.5× cap tall after margin)
+const IP_SIDE    = 1.52;   // iPhone model box ÷ cap height (≈1.5× cap tall after margin)
+const MODEL_PAD  = 3;      // px of transparent margin a 3D toy's canvas keeps
+                           // outside its model's worst-case pose — a canvas cut
+                           // to the face-on size shaves the corners off every
+                           // diagonal one, which is the other half of looking
+                           // trapped in a box
 
 /* ---- the grip pin: a held body stays fully dynamic, tied to the finger
    by a stiff critically-damped spring at the exact point it was caught */
@@ -771,12 +765,27 @@ const R1_FLAT_K     = 11;    // how hard gravity tips a grounded slab off its
                              // wants to be, upright is the ridge it falls off
 const R1_FLAT_NUDGE = 1.1;   // 1/s² — breaks a perfect edge balance
 const R1_FLAT_EPS   = .045;  // rad — how square to a face before it may rest
-const R1_HULL_DW    = 4;     // px of width change that justifies re-cutting the collider
-const R1_RECUT_MS   = 200;   // …and no more often than this — each re-cut is a
-                             // real event to the pile, not a per-frame tween
-const R1_FREEZE_V   = 60;    // grounded slower than this: width tracking stops —
-                             // a settling toy re-cutting under sleepers was
-                             // waking the whole neighbourhood for nothing
+const R1_WAKE_DW    = 3;     // px of hull GROWTH a toy may accumulate before it
+                             // tells the sleepers around it. The hull itself is
+                             // re-cut every single frame — a dozen verts are
+                             // free, and a collider that lags the pose is the
+                             // container the toys looked stuck in. What is not
+                             // free is the SIDE EFFECT: a fattening hull wakes
+                             // its neighbours, and doing that every frame is the
+                             // old sleep-wake metronome. So growth accumulates
+                             // here and only crossing it notifies anyone.
+                             // Shrinking wakes no one, ever.
+const R1_CHAMFER    = .3;    // of each silhouette edge, the most its corner may
+                             // be cut back — at .3 a face-on slab comes out as
+                             // exactly the octagon the toys always had, so
+                             // nothing about a toy at rest changes
+const R1_PIVOT_MAX  = 2;     // px one re-cut may drop a grounded toy so the
+                             // silhouette's foot stays on the floor: a slab
+                             // toppling onto its face pivots ON the contact — it
+                             // does not shrink away from the floor and then fall
+                             // back to it. Capped under the eye's own floor so
+                             // the correction is never a visible step; gravity
+                             // closes whatever is left over.
 
 let mode = "seated";    // seated | live | homing   (letters + pills — toys never seat)
 let raf = 0, lastT = 0;
@@ -969,7 +978,6 @@ function mkBody(el, kind){
     canSleep:0,                  // passed its member stillness test this frame
     defN:0, defT:0, kx:0, ky:0,  // island-freeze deferrals (count + first-defer
                                  // time) + pre-snap pose
-    lastRecut:0,                 // toys: last hull re-cut time (rate limit)
     homeDelay:0, homed:true, dropAt:0,
     entering:false,              // toys fall in from above the ceiling plane
     draw3d:null,                 // a WebGL toy hangs its painter here
@@ -977,7 +985,10 @@ function mkBody(el, kind){
     rx:0, ry:0, wx:0, wy:0,      //   pitch/yaw + angular velocities (rad, rad/s)
     poseCalm:true, lastKick:0,   //   settled flag + impact-kick rate limiter
     thick3d:0,                   //   depth ÷ height, per model (r1 ≠ iPhone)
-    toyW:0, toyH:0, toyCut:0, hullW:0,   // toy box + current depth-aware hull width
+    toyW:0, toyH:0, toyCut:0,    // the face-on toy box…
+    hullW:0, hullH:0,            //   …the box of the silhouette cut from it
+    hullRx:NaN, hullRy:NaN,      //   …the pose that cut was made at (NaN: never)
+    hullGrow:0,                  //   …and the growth not yet told to sleepers
     label:"",                    // what it says when picked up (toys only)
   };
   for(let i = 0; i < HULL_MAXV; i++){ b.lv.push({x:0, y:0}); b.wv.push({x:0, y:0}); }
@@ -2269,10 +2280,6 @@ function subStep(dt, t, W, H, first){
     if(allHome) seatAll();       // letters return to text; toys carry on below
   }
 
-  // a 3D toy's collider width tracks its yaw — face-on the full octagon,
-  // edge-on a thin slab (a fattening hull pushes, never teleports)
-  for(const b of bodies) if(b.tumbles) r1TrackWidth(b, t);
-
   // broadphase + narrowphase
   nContacts = 0;
   for(const b of bodies){
@@ -2340,6 +2347,14 @@ function subStep(dt, t, W, H, first){
     prevF[i] = c.fid; prevJn[i] = c.jn; prevJt[i] = c.jt;
     prevPX[i] = c.px; prevPY[i] = c.py;
   }
+
+  // last of all, a 3D toy's collider is re-cut from the pose this substep
+  // just integrated — the exact pose the frame is about to paint, and the
+  // one the next narrowphase will measure. Last, because a hull re-cut in
+  // the middle of a substep would leave the position passes correcting
+  // contact points the hull no longer has: they would hoist the body back
+  // up by the very daylight the re-cut was closing.
+  for(const b of bodies) if(b.tumbles) r1TrackHull(b, dt);
 }
 
 function finishStep(dt, t, W, H){
@@ -2355,9 +2370,11 @@ function finishStep(dt, t, W, H){
       }
       b.vx = b.vy = b.a = b.va = 0;
     }
-    if(b.tumbles && !isFinite(b.rx + b.ry + b.wx + b.wy)){
-      b.rx = b.ry = b.wx = b.wy = 0;      // level the pose; the hull re-fattens next track
-      b.poseCalm = true;
+    if(b.tumbles && !isFinite(b.rx + b.ry + b.wx + b.wy + b.hullW + b.hullH)){
+      b.rx = b.ry = b.wx = b.wy = 0;      // level the pose, forget the growth
+      b.poseCalm = true;                  // owed to sleepers, and re-cut the
+      b.hullGrow = 0;                     // face-on hull the pose now claims
+      r1TrackHull(b, dt);                 // (the NaN pose never matches, so it cuts)
     }
     if(b.sim && b !== held){
       // lost-body guards only — a body fully outside a wall or wholly
@@ -2608,7 +2625,7 @@ function setSlabGeometry(b, w, h, cut, dens, bw, bh){
   }
   b.rad = r;
   b.toyW = w; b.toyH = h; b.toyCut = cut;   // the depth-aware hull re-cuts from these
-  b.hullW = w;
+  b.hullW = w; b.hullH = h; b.hullGrow = 0;
 }
 function toyBody(el, w, h, cut, bw, bh){
   const b = mkBody(el, "toy");
@@ -2648,8 +2665,7 @@ function kickTumble(b, speed, nx, ny){
   b.wy = clampW(b.wy * .6 + rspin() * k * (.25 + .75 * Math.abs(nx)) * (.6 + Math.random() * .4));
 }
 
-/* nearest stable pose — but edge-on only when the tumble genuinely stops
-   near ±90°: a slab rarely balances on its edge, so the coin stance stays rare */
+
 /* integrate the tumble each awake frame (the held case lives in step).
    Fully organic: no target poses, no settle spring — spin just damps
    away and the r1 stays at whatever angle it stopped at. It lands
@@ -2688,59 +2704,138 @@ function tumbleStep(b, dt){
     b.ry = dAng(flatOf(b.ry));
     b.wx = 0; b.wy = 0;
     b.poseCalm = true;                   // sleep may proceed; rAF may stop
-    // the pose is final, so the collider must match the profile exactly —
-    // the rate limiter is for churn, not for the last word
-    const thick = b.toyH * (b.thick3d || R1_THICK);
-    r1SetWidth(b, Math.max(thick, thick + (b.toyW - thick) * Math.abs(Math.cos(b.ry))),
-                  Math.max(thick, thick + (b.toyH - thick) * Math.abs(Math.cos(b.rx))));
-    b.lastRecut = performance.now();
+    // the collider takes that exact profile at the end of this same
+    // substep, where the tracker runs for every pose — the old explicit
+    // re-cut here was the rate limiter's exemption, and a hull cut in the
+    // middle of a substep is the one thing the tracker must not do
   }
 }
 
-/* re-cut the octagon at a new effective width. Verts only — mass and
-   inertia stay the face-on values. Only a FATTENING hull can shove
-   anyone, so only then are sleepers within reach woken rather than
-   teleported through — a narrowing hull disturbs no one. */
-function r1SetWidth(b, w, h){
-  h = h || b.hullH || b.toyH;
-  const grew = w > b.hullW + .01 || h > (b.hullH || b.toyH) + .01;
+/* the new silhouette is on record: remember its box and, if the hull
+   GREW, keep the tally. Only a fattening hull can shove anyone, so only
+   then are sleepers within reach woken rather than teleported through —
+   a narrowing hull disturbs no one. And because the cut now happens
+   every frame, the growth ACCUMULATES and the neighbourhood is told
+   once it adds up to R1_WAKE_DW: the pile feels the same shove it
+   always did, in one notification instead of sixty a second. */
+function r1NoteHull(b, w, h){
+  b.hullGrow += Math.max(0, w - b.hullW) + Math.max(0, h - b.hullH);
   b.hullW = w; b.hullH = h;
-  const w2 = w / 2, h2 = h / 2;
-  const cx = Math.min(b.toyCut, w2 * .6);   // corners shrink so the slab stays convex
-  const cy = Math.min(b.toyCut, h2 * .6);
-  const v = b.lv;
-  v[0].x = -w2 + cx; v[0].y = -h2;
-  v[1].x =  w2 - cx; v[1].y = -h2;
-  v[2].x =  w2;      v[2].y = -h2 + cy;
-  v[3].x =  w2;      v[3].y =  h2 - cy;
-  v[4].x =  w2 - cx; v[4].y =  h2;
-  v[5].x = -w2 + cx; v[5].y =  h2;
-  v[6].x = -w2;      v[6].y =  h2 - cy;
-  v[7].x = -w2;      v[7].y = -h2 + cy;
-  if(!grew) return;
+  if(b.hullGrow < R1_WAKE_DW) return;
+  b.hullGrow = 0;
   for(const o of bodies){
     if(o === b || !o.sleeping) continue;
     if(Math.hypot(o.x - b.x, o.y - b.y) < o.rad + b.rad + 6) wakeIsland(o, false);
   }
 }
-function r1TrackWidth(b, t){
-  // a grounded, slow toy keeps the hull it has: its pose is a beat from
-  // settled, and each re-cut is a real event to the pile around it —
-  // rate-limited even in flight so the hull steps, never buzzes
-  if(b.airT === 0 && b.vx * b.vx + b.vy * b.vy < R1_FREEZE_V * R1_FREEZE_V)
-    return;
-  if(t - b.lastRecut < R1_RECUT_MS) return;
-  const thick = b.toyH * (b.thick3d || R1_THICK);  // never thinner than it is deep
-  // turned on its side edge (ry) narrows it; laid face-down (rx) flattens it
-  const eff = Math.max(thick,
-    thick + (b.toyW - thick) * Math.abs(Math.cos(b.ry)));
-  const effH = Math.max(thick,
-    thick + (b.toyH - thick) * Math.abs(Math.cos(b.rx)));
-  if(Math.abs(eff - b.hullW) > R1_HULL_DW ||
-     Math.abs(effH - (b.hullH || b.toyH)) > R1_HULL_DW){
-    b.lastRecut = t;
-    r1SetWidth(b, eff, effH);
+
+/* world y of the lowest hull vertex — where the silhouette's foot is */
+function hullLowY(b){
+  const s = Math.sin(b.a), c = Math.cos(b.a);
+  let maxy = -1e9;
+  for(let i = 0; i < b.nv; i++){
+    const wy = b.y + b.lv[i].x * s + b.lv[i].y * c;
+    if(wy > maxy) maxy = wy;
   }
+  return maxy;
+}
+
+/* generator scratch for the cut below — reused, never reallocated */
+const zgX = [0, 0, 0], zgY = [0, 0, 0];
+const zvX = [0, 0, 0, 0, 0, 0], zvY = [0, 0, 0, 0, 0, 0];
+function zPush(n, x, y){
+  if(y < 0 || (y === 0 && x < 0)){ x = -x; y = -y; }   // into the y >= 0 half-plane
+  if(x * x + y * y < 1e-9) return n;                   // this axis is exactly edge-on
+  zgX[n] = x; zgY[n] = y;
+  return n + 1;
+}
+function zSwap(i, j){
+  let t = zgX[i]; zgX[i] = zgX[j]; zgX[j] = t;
+  t = zgY[i]; zgY[i] = zgY[j]; zgY[j] = t;
+}
+
+/* THE COLLIDER IS THE SILHOUETTE — re-cut from the pose every frame.
+   A slab turned by pitch rx and yaw ry projects to the zonogon spanned
+   by its three half-axes: four sides seen square-on, six at any angle
+   between, and its corners chamfered by the same fraction of each edge
+   the face-on octagon always used, so a toy at rest wears precisely the
+   hull it wore before. The outline itself, note — not the outline's
+   bounding box, which is what a width-and-height collider really is: an
+   r1 balanced on a diagonal edge paints a thin band across a nearly
+   square box, and the box held it 37px above the floor for a quarter
+   second while it toppled. Together with the deadband, the rate limit
+   and the grounded freeze that used to sit here — a toy landing on a
+   hull cut for its mid-air pose, tumbling around inside it, dropping
+   only at the end — that was the whole of the container.
+
+   The box of that outline is still worth naming, because growth is what
+   the sleepers care about:
+
+     tall = toyH·|cos rx| + thick·|sin rx|
+     wide = toyW·|cos ry| + |sin ry|·(toyH·|sin rx| + thick·|cos rx|)
+
+   Twelve verts a frame cost nothing; only the waking is rationed. And
+   while it is grounded, a shrinking silhouette PIVOTS on its contact
+   rather than lifting off it. */
+function r1TrackHull(b, dt){
+  if(b.rx === b.hullRx && b.ry === b.hullRy) return;   // the pose has not moved
+  b.hullRx = b.rx; b.hullRy = b.ry;
+  const thick = b.toyH * (b.thick3d || R1_THICK);      // never thinner than it is deep
+  const cx = Math.cos(b.rx), sx = Math.sin(b.rx);
+  const cy = Math.cos(b.ry), sy = Math.sin(b.ry);
+  const hx = b.toyW * .5, hy = b.toyH * .5, hz = thick * .5;
+  // the three half-axes as the screen sees them (the model's +y is up)
+  let n = zPush(0, hx * cy, 0);
+  n = zPush(n, hy * sy * sx, -hy * cx);
+  n = zPush(n, hz * sy * cx, hz * sx);
+  if(n < 2) return;                                    // degenerate: keep the hull
+  // order them by angle — inside one half-plane the cross product suffices
+  if(zgX[0] * zgY[1] - zgY[0] * zgX[1] < 0) zSwap(0, 1);
+  if(n === 3){
+    if(zgX[1] * zgY[2] - zgY[1] * zgX[2] < 0) zSwap(1, 2);
+    if(zgX[0] * zgY[1] - zgY[0] * zgX[1] < 0) zSwap(0, 1);
+  }
+  let sumx = 0, sumy = 0, ex = 0, ey = 0;
+  for(let i = 0; i < n; i++){
+    sumx += zgX[i]; sumy += zgY[i];
+    ex += Math.abs(zgX[i]); ey += Math.abs(zgY[i]);    // …the outline's box
+  }
+  // walk it: from the far corner, out along each generator in turn, back
+  let px = -sumx, py = -sumy, m = 0;
+  zvX[m] = px; zvY[m] = py; m++;
+  for(let i = 0; i < n; i++){
+    px += 2 * zgX[i]; py += 2 * zgY[i];
+    zvX[m] = px; zvY[m] = py; m++;
+  }
+  for(let i = 0; i < n - 1; i++){
+    px -= 2 * zgX[i]; py -= 2 * zgY[i];
+    zvX[m] = px; zvY[m] = py; m++;
+  }
+  const pivot = b.airT === 0 && b !== held;            // it was resting on something
+  const low0 = pivot ? hullLowY(b) : 0;
+  // chamfer every corner into the collider — no toy balances on a point
+  const v = b.lv;
+  let k = 0, r2 = 0;
+  for(let i = 0; i < m; i++){
+    const qx = zvX[i], qy = zvY[i];
+    let dx = zvX[(i + m - 1) % m] - qx, dy = zvY[(i + m - 1) % m] - qy;
+    let t = Math.min(b.toyCut / (Math.hypot(dx, dy) || 1), R1_CHAMFER);
+    let vx = qx + dx * t, vy = qy + dy * t;
+    v[k].x = vx; v[k].y = vy; k++;
+    if(vx * vx + vy * vy > r2) r2 = vx * vx + vy * vy;
+    dx = zvX[(i + 1) % m] - qx; dy = zvY[(i + 1) % m] - qy;
+    t = Math.min(b.toyCut / (Math.hypot(dx, dy) || 1), R1_CHAMFER);
+    vx = qx + dx * t; vy = qy + dy * t;
+    v[k].x = vx; v[k].y = vy; k++;
+    if(vx * vx + vy * vy > r2) r2 = vx * vx + vy * vy;
+  }
+  b.nv = k;
+  b.rad = Math.sqrt(r2);
+  r1NoteHull(b, 2 * ex, 2 * ey);
+  if(pivot){
+    const rise = low0 - hullLowY(b);                   // the foot came off the floor…
+    if(rise > 0) b.y += Math.min(rise, R1_PIVOT_MAX * Math.max(1, dt * 60));
+  }                                                    // …so put the body back on it
 }
 
 function capHeightPx(F){
@@ -2797,12 +2892,40 @@ function any3DBusy(){
   return false;
 }
 
+/* the furthest any vertex can be flung from the centre by a tumble. The
+   pose matrix is RotY·RotX, and for a vertex p the projected |x| reaches
+   exactly |p| at some (rx, ry) — max |cos ry·px + sin ry·(sin rx·py +
+   cos rx·pz)| = hypot(px, py, pz) — so the worst case across every pose
+   any model can strike is simply its furthest vertex, the half-diagonal
+   of its own bake. Measured here rather than assumed: the r1 reaches
+   1.330 and the phone 1.055 model units, against the 1.0 a face-on
+   canvas covers. */
+function modelRadius(batches){
+  let r2 = 1;
+  for(const bt of batches){
+    const p = bt.pos;
+    for(let i = 0; i < p.length; i += 3){
+      const d = p[i] * p[i] + p[i + 1] * p[i + 1] + p[i + 2] * p[i + 2];
+      if(d > r2) r2 = d;
+    }
+  }
+  return Math.sqrt(r2);
+}
+
 function makeModelGL(batches, side, opts){
   const el = document.createElement("canvas");
   el.className = "toy";
   el.setAttribute("aria-hidden", "true");
-  el.style.width = side + "px";
-  el.style.height = side + "px";
+  // headroom: `side` is the size the MODEL draws at, and it never changes.
+  // The canvas around it grows to hold the worst pose plus a margin, and
+  // the ortho scale is divided by exactly the same factor — same pixels
+  // per model unit, same picture, just more transparent glass around it,
+  // so no tumble can ever have its corners shaved by the canvas edge.
+  const ppu = side * .985 / 2;                          // px per model unit — fixed
+  const box = Math.ceil(2 * (modelRadius(batches) * ppu + MODEL_PAD));
+  const mScale = side * .985 / box;                     // …which this preserves
+  el.style.width = box + "px";
+  el.style.height = box + "px";
   const glOpts = { alpha:true, antialias:true, premultipliedAlpha:true };
   let gl = null;
   try{
@@ -2949,10 +3072,10 @@ function makeModelGL(batches, side, opts){
       return;
     if(dpr !== dpr0){
       dpr0 = dpr;
-      el.width = el.height = Math.max(2, Math.round(side * dpr));
+      el.width = el.height = Math.max(2, Math.round(box * dpr));
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     }
-    m3yx(b.ry, b.rx, .985, mM);       // positions: the tumble — CSS spins the box
+    m3yx(b.ry, b.rx, mScale, mM);     // positions: the tumble — CSS spins the box
     m3yx(b.ry, b.rx, 1, mL);
     m3z(-b.a, mL);                    // normals: lights stay fixed on the page
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -2987,7 +3110,10 @@ function makeModelGL(batches, side, opts){
     dirty = false;
   }
 
-  return { el, w:opts.w, h:opts.h, cut:opts.cut, boxW:side, boxH:side,
+  // the hull stays the model's own slab (w/h); the ELEMENT is the padded
+  // canvas, and the centroid sits at its centre — so the physics box is
+  // unchanged and only the grab halo grows
+  return { el, w:opts.w, h:opts.h, cut:opts.cut, boxW:box, boxH:box,
            thick:opts.thick, draw3d,
            busy:bb => !dead && !bb.poseCalm };
 }
@@ -3003,14 +3129,17 @@ function makeRabbitGL(side){
     side,
     { w:side, h:side, cut:rr * .75, thick:R1_THICK,
       onLost:el => {
-        el.style.background = "#ff4d06";   // degrade to the flat look
+        el.style.background = "#ff4d06";   // degrade to the flat look, which is
+        el.style.width = side + "px";      // the model's own size again — the
+        el.style.height = side + "px";     // tumble headroom has nothing to hold
         el.style.borderRadius = rr + "px";
         const bb = bodyByEl.get(el);       // a flat square has no depth: level
-        if(bb){                            // the pose, restore the face-on hull
-          bb.tumbles = false;
-          bb.rx = bb.ry = bb.wx = bb.wy = 0;
+        if(bb){                            // the pose, cut the face-on hull it
+          bb.rx = bb.ry = bb.wx = bb.wy = 0;   // now has, and stop tumbling
           bb.poseCalm = true;
-          if(Math.abs(bb.hullW - bb.toyW) > .5) r1SetWidth(bb, bb.toyW);
+          r1TrackHull(bb, 0);
+          bb.tumbles = false;
+          bb.cx = bb.cy = side / 2;        // …and re-centre the shrunken box
           wakeIsland(bb, false);
           start();
         }
@@ -3151,7 +3280,7 @@ function makeIphoneGL(side){
      !M.solid.idx || !M.solid.idx.length || !M.screen.pos || !M.screen.uv ||
      !M.screen.idx || !M.screen.idx.length)
     return null;
-  // model dims 0.9747 × 2.0, drawn at the .985 margin on a square canvas
+  // model dims 0.9747 × 2.0, drawn at the .985 margin inside its model box
   const h = Math.round(side * .985);
   const w = Math.round(side * .985 * .4874);
   return makeModelGL(
