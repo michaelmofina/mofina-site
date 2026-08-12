@@ -271,8 +271,9 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   position:fixed;
   left:0; right:0;               /* full width, text centred — a left:50% box
                                     shrink-to-fits and wraps on a narrow phone */
-  bottom:20%;
-  text-shadow:0 0 6px var(--paper), 0 0 14px var(--paper);  /* halo, not a box */
+  top:50%;
+  transform:translateY(-50%);    /* dead centre — the middle is empty once
+                                    the letters have fallen out of it */
   z-index:20;                    /* over the sprites (8–9), under the dev panel (80) */
   padding:0 1.5rem;
   text-align:center;
@@ -287,7 +288,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 }
 .caption.on{
   opacity:1;
-  transform:none;
+  
   transition:opacity .22s ease,                           /* …and the way in */
              transform .22s cubic-bezier(.22,.61,.36,1);
 }
@@ -406,7 +407,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
     <nav class="reach" aria-label="Contact">
       <a class="corner-link" href="https://twitter.com/MichaelMofina" rel="me">Twitter</a>
       <a class="corner-link" href="https://www.linkedin.com/in/michaelmofina" rel="me">LinkedIn</a>
-      <button class="pill cta" id="contact" type="button">Copy email</button>
+      <button class="pill cta" id="contact" type="button" title="Copy to clipboard">info@michaelmofina.com</button>
     </nav>
   </div>
 
@@ -580,7 +581,6 @@ if(reduced) return;   // the name simply stays a name; no toys, no handlers
    motion never reaches this code (nothing is ever grabbed there), so
    the element simply stays empty and invisible.
    ================================================================ */
-const CAP_HOLD = 1400;                 // ms the label lingers after release
 const capEl = document.getElementById("caption");
 let capT = 0;
 function showCaption(text){
@@ -605,10 +605,10 @@ function floodOff(){
 function hideCaption(){
   if(!capEl) return;
   clearTimeout(capT);
-  capT = setTimeout(() => {
-    capEl.classList.remove("on");
-    setTimeout(() => { if(!capEl.classList.contains("on")) capEl.textContent = ""; }, 400);
-  }, CAP_HOLD);
+  capEl.classList.remove("on");         // the instant the object leaves the hand
+  capT = setTimeout(() => {             // …the words themselves go once faded,
+    if(!capEl.classList.contains("on")) capEl.textContent = "";   // so aria-live
+  }, 400);                              // holds nothing stale
 }
 
 /* ================================================================
@@ -748,7 +748,13 @@ const R1_KICK_FLING = .002;  // fling speed (px/s) → tumble (rad/s)
 const R1_KICK_HIT   = .0032; // impact speed (px/s) → tumble (rad/s)
 const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (px/s)
 const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays under ~1.5 turns
-const R1_DAMP_SET   = 6;     // grounded spin die-off, 1/s — it lands where it lands
+const R1_DAMP_SET   = 6;     // grounded spin die-off, 1/s
+const R1_FLAT_K     = 11;    // how hard gravity tips a grounded slab off its
+                             // edge and onto a face, 1/s². torque ∝ sin(2θ):
+                             // face-up and face-down are stable, edge-on is a
+                             // ridge it always falls off — never a snap
+const R1_FLAT_NUDGE = 1.1;   // 1/s² — breaks a perfect edge balance
+const R1_FLAT_EPS   = .045;  // rad — how square to a face before it may rest
 const R1_HULL_DW    = 4;     // px of width change that justifies re-cutting the collider
 const R1_RECUT_MS   = 200;   // …and no more often than this — each re-cut is a
                              // real event to the pile, not a per-frame tween
@@ -2632,19 +2638,38 @@ function kickTumble(b, speed, nx, ny){
    Fully organic: no target poses, no settle spring — spin just damps
    away and the r1 stays at whatever angle it stopped at. It lands
    where it lands. */
+const flatOf = th => Math.round(th / Math.PI) * Math.PI;   // nearest face
 function tumbleStep(b, dt){
   if(b.poseCalm) return;                 // frozen mid-pose until the next kick
   const grounded = b.touch && Math.hypot(b.vx, b.vy) < 50;
   const dk = Math.exp(-(grounded ? R1_DAMP_SET
                        : b.touch ? R1_DAMP_GND : R1_DAMP_AIR) * dt);
   b.wx *= dk; b.wy *= dk;
-  if(grounded && Math.abs(b.wx) < .04 && Math.abs(b.wy) < .04){
-    b.wx = 0; b.wy = 0;
-    b.poseCalm = true;                   // sleep may proceed; rAF may stop
-    return;
+
+  if(grounded){
+    // once it is down, weight decides which way it falls: the torque is zero
+    // on a face, strongest at 45°, and pushes away from the edge-on ridge
+    b.wx += -R1_FLAT_K * Math.sin(2 * b.rx) * dt;
+    b.wy += -R1_FLAT_K * Math.sin(2 * b.ry) * dt;
+    // a slab balanced exactly on its edge has nowhere to fall — tip it
+    if(Math.cos(2 * b.rx) < -.985 && Math.abs(b.wx) < .06)
+      b.wx += (b.rx >= 0 ? -1 : 1) * R1_FLAT_NUDGE * dt;
+    if(Math.cos(2 * b.ry) < -.985 && Math.abs(b.wy) < .06)
+      b.wy += (b.ry >= 0 ? -1 : 1) * R1_FLAT_NUDGE * dt;
   }
+
   b.rx = dAng(b.rx + b.wx * dt);
   b.ry = dAng(b.ry + b.wy * dt);
+
+  // it may only rest once it is square to a face and has stopped turning
+  if(grounded && Math.abs(b.wx) < .04 && Math.abs(b.wy) < .04 &&
+     Math.abs(dAng(b.rx - flatOf(b.rx))) < R1_FLAT_EPS &&
+     Math.abs(dAng(b.ry - flatOf(b.ry))) < R1_FLAT_EPS){
+    b.rx = dAng(flatOf(b.rx));           // the last 2° — under the eye's floor
+    b.ry = dAng(flatOf(b.ry));
+    b.wx = 0; b.wy = 0;
+    b.poseCalm = true;                   // sleep may proceed; rAF may stop
+  }
 }
 
 /* re-cut the octagon at a new effective width. Verts only — mass and
