@@ -177,7 +177,17 @@ a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent)
   -webkit-user-select:none;
 }
 /* Get in touch — the one filled thing on the page, in the visit's accent */
+.cta .lbl{
+  grid-area:1 / 1;
+  transition:opacity .18s ease;
+}
+.cta .lbl.b{ opacity:0; }        /* …the confirmation waits underneath */
+.cta.copied .lbl.a{ opacity:0; }
+.cta.copied .lbl.b{ opacity:1; }
 .pill.cta{
+  display:grid;                  /* both labels share one cell, so the chip is
+                                    as wide as the wider of them — and stays */
+  place-items:center;
   background:var(--accent);
   border-color:var(--accent);
   color:var(--paper);
@@ -277,8 +287,8 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   z-index:20;                    /* over the sprites (8–9), under the dev panel (80) */
   padding:0 1.5rem;
   text-align:center;
-  font-size:.85rem;
-  letter-spacing:.01em;
+  font-size:clamp(1rem,1.5vw,1.15rem);
+  letter-spacing:0;
   line-height:1.4;
   color:rgba(var(--ink),.62);
   pointer-events:none;
@@ -315,7 +325,17 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 :root.flooded .pill{
   background:#fdfdfb; color:rgba(22,22,22,.7); border-color:rgba(22,22,22,.25);
 }
-:root.flooded .pill.cta{ background:#161616; color:#fdfdfb; border-color:#161616; }
+:root.flooded .cta .lbl{
+  grid-area:1 / 1;
+  transition:opacity .18s ease;
+}
+.cta .lbl.b{ opacity:0; }        /* …the confirmation waits underneath */
+.cta.copied .lbl.a{ opacity:0; }
+.cta.copied .lbl.b{ opacity:1; }
+.pill.cta{
+  display:grid;                  /* both labels share one cell, so the chip is
+                                    as wide as the wider of them — and stays */
+  place-items:center; background:#161616; color:#fdfdfb; border-color:#161616; }
 .big, .who, .who a, .corner-link, .caption{ transition:color .24s ease; }
 
 /* ---- static wayfinding ---- */
@@ -407,7 +427,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
     <nav class="reach" aria-label="Contact">
       <a class="corner-link" href="https://twitter.com/MichaelMofina" rel="me">Twitter</a>
       <a class="corner-link" href="https://www.linkedin.com/in/michaelmofina" rel="me">LinkedIn</a>
-      <button class="pill cta" id="contact" type="button" title="Copy to clipboard">info@michaelmofina.com</button>
+      <button class="pill cta" id="contact" type="button" title="Copy to clipboard" aria-label="Copy email address"><span class="lbl a">info@michaelmofina.com</span><span class="lbl b" aria-hidden="true">copied &#10003;</span></button>
     </nav>
   </div>
 
@@ -534,15 +554,10 @@ if(devPanel && location.hash === "#dev"){
 const EMAIL = "info@michaelmofina.com";
 let copyT = 0;
 function copyEmail(el){
-  const rest = el.dataset.label || (el.dataset.label = el.textContent);  // its own words
-  const done = ok => {
-    clearTimeout(copyT);
-    el.textContent = ok ? "copied \u2713" : rest;
+  const done = ok => {                      // both labels are already in the
+    clearTimeout(copyT);                    // chip; only their opacity moves
     el.classList.toggle("copied", ok);
-    if(ok) copyT = setTimeout(() => {
-      el.textContent = rest;
-      el.classList.remove("copied");
-    }, 1600);
+    if(ok) copyT = setTimeout(() => el.classList.remove("copied"), 1600);
   };
   try{
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -750,9 +765,10 @@ const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (px/s)
 const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays under ~1.5 turns
 const R1_DAMP_SET   = 6;     // grounded spin die-off, 1/s
 const R1_FLAT_K     = 11;    // how hard gravity tips a grounded slab off its
-                             // edge and onto a face, 1/s². torque ∝ sin(2θ):
-                             // face-up and face-down are stable, edge-on is a
-                             // ridge it always falls off — never a snap
+                             // edge and onto a face, 1/s². Seen from the side,
+                             // a device lying on the floor shows its profile:
+                             // rx = ±90° (screen-down or back-down) is where it
+                             // wants to be, upright is the ridge it falls off
 const R1_FLAT_NUDGE = 1.1;   // 1/s² — breaks a perfect edge balance
 const R1_FLAT_EPS   = .045;  // rad — how square to a face before it may rest
 const R1_HULL_DW    = 4;     // px of width change that justifies re-cutting the collider
@@ -2638,7 +2654,9 @@ function kickTumble(b, speed, nx, ny){
    Fully organic: no target poses, no settle spring — spin just damps
    away and the r1 stays at whatever angle it stopped at. It lands
    where it lands. */
-const flatOf = th => Math.round(th / Math.PI) * Math.PI;   // nearest face
+const flatOf = th => Math.round(th / Math.PI) * Math.PI;          // square to us
+const HPI2 = Math.PI / 2;
+const faceOf = th => Math.round((th - HPI2) / Math.PI) * Math.PI + HPI2;  // flat on the floor
 function tumbleStep(b, dt){
   if(b.poseCalm) return;                 // frozen mid-pose until the next kick
   const grounded = b.touch && Math.hypot(b.vx, b.vy) < 50;
@@ -2647,13 +2665,14 @@ function tumbleStep(b, dt){
   b.wx *= dk; b.wy *= dk;
 
   if(grounded){
-    // once it is down, weight decides which way it falls: the torque is zero
-    // on a face, strongest at 45°, and pushes away from the edge-on ridge
-    b.wx += -R1_FLAT_K * Math.sin(2 * b.rx) * dt;
+    // weight decides which way it topples: rx wants ±90° (the device flat on
+    // the floor, screen-down or back-down, so we see its profile), ry wants
+    // 0 or π (square to us, not turned onto a side edge)
+    b.wx += R1_FLAT_K * Math.sin(2 * b.rx) * dt;
     b.wy += -R1_FLAT_K * Math.sin(2 * b.ry) * dt;
-    // a slab balanced exactly on its edge has nowhere to fall — tip it
-    if(Math.cos(2 * b.rx) < -.985 && Math.abs(b.wx) < .06)
-      b.wx += (b.rx >= 0 ? -1 : 1) * R1_FLAT_NUDGE * dt;
+    // stood perfectly upright it has nowhere to fall — give it a reason
+    if(Math.cos(2 * b.rx) > .985 && Math.abs(b.wx) < .06)
+      b.wx += (Math.cos(b.rx) >= 0 ? 1 : -1) * R1_FLAT_NUDGE * dt;
     if(Math.cos(2 * b.ry) < -.985 && Math.abs(b.wy) < .06)
       b.wy += (b.ry >= 0 ? -1 : 1) * R1_FLAT_NUDGE * dt;
   }
@@ -2663,12 +2682,18 @@ function tumbleStep(b, dt){
 
   // it may only rest once it is square to a face and has stopped turning
   if(grounded && Math.abs(b.wx) < .04 && Math.abs(b.wy) < .04 &&
-     Math.abs(dAng(b.rx - flatOf(b.rx))) < R1_FLAT_EPS &&
+     Math.abs(dAng(b.rx - faceOf(b.rx))) < R1_FLAT_EPS &&
      Math.abs(dAng(b.ry - flatOf(b.ry))) < R1_FLAT_EPS){
-    b.rx = dAng(flatOf(b.rx));           // the last 2° — under the eye's floor
+    b.rx = dAng(faceOf(b.rx));           // the last 2° — under the eye's floor
     b.ry = dAng(flatOf(b.ry));
     b.wx = 0; b.wy = 0;
     b.poseCalm = true;                   // sleep may proceed; rAF may stop
+    // the pose is final, so the collider must match the profile exactly —
+    // the rate limiter is for churn, not for the last word
+    const thick = b.toyH * (b.thick3d || R1_THICK);
+    r1SetWidth(b, Math.max(thick, thick + (b.toyW - thick) * Math.abs(Math.cos(b.ry))),
+                  Math.max(thick, thick + (b.toyH - thick) * Math.abs(Math.cos(b.rx))));
+    b.lastRecut = performance.now();
   }
 }
 
@@ -2676,12 +2701,13 @@ function tumbleStep(b, dt){
    inertia stay the face-on values. Only a FATTENING hull can shove
    anyone, so only then are sleepers within reach woken rather than
    teleported through — a narrowing hull disturbs no one. */
-function r1SetWidth(b, w){
-  const grew = w > b.hullW + .01;
-  b.hullW = w;
-  const w2 = w / 2, h2 = b.toyH / 2;
+function r1SetWidth(b, w, h){
+  h = h || b.hullH || b.toyH;
+  const grew = w > b.hullW + .01 || h > (b.hullH || b.toyH) + .01;
+  b.hullW = w; b.hullH = h;
+  const w2 = w / 2, h2 = h / 2;
   const cx = Math.min(b.toyCut, w2 * .6);   // corners shrink so the slab stays convex
-  const cy = b.toyCut;
+  const cy = Math.min(b.toyCut, h2 * .6);
   const v = b.lv;
   v[0].x = -w2 + cx; v[0].y = -h2;
   v[1].x =  w2 - cx; v[1].y = -h2;
@@ -2705,11 +2731,15 @@ function r1TrackWidth(b, t){
     return;
   if(t - b.lastRecut < R1_RECUT_MS) return;
   const thick = b.toyH * (b.thick3d || R1_THICK);  // never thinner than it is deep
+  // turned on its side edge (ry) narrows it; laid face-down (rx) flattens it
   const eff = Math.max(thick,
     thick + (b.toyW - thick) * Math.abs(Math.cos(b.ry)));
-  if(Math.abs(eff - b.hullW) > R1_HULL_DW){
+  const effH = Math.max(thick,
+    thick + (b.toyH - thick) * Math.abs(Math.cos(b.rx)));
+  if(Math.abs(eff - b.hullW) > R1_HULL_DW ||
+     Math.abs(effH - (b.hullH || b.toyH)) > R1_HULL_DW){
     b.lastRecut = t;
-    r1SetWidth(b, eff);
+    r1SetWidth(b, eff, effH);
   }
 }
 
