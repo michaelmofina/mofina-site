@@ -197,7 +197,6 @@ a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent)
   white-space:nowrap;
 }
 .pill.cta:hover{ color:var(--paper); border-color:var(--accent); filter:brightness(1.08); }
-.pill.cta.live.held{ color:var(--paper); border-color:var(--accent); }
 .pill.cta.copied{ filter:brightness(1.12); }
 .pill.live.held{ cursor:grabbing; color:var(--accent); border-color:var(--accent); }
 
@@ -303,9 +302,6 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 }
 /* a short viewport puts 12% right in the middle of the pile — sit just
    above the floor there instead, under everything rather than through it */
-@media (max-height: 540px){
-  .caption{ bottom:.6rem; }
-}
 
 
 
@@ -623,10 +619,15 @@ function hideCaption(){
    ================================================================ */
 
 /* ---- every physics tunable lives in this block ---- */
-const G          = 2000;   // gravity, px/s²
+const G          = 4200;   // gravity, px/s² — a drop from 40% of the viewport
+                           // lands in ~0.39s. (2000 read floaty: everything
+                           // hung in the air half again as long as a real
+                           // object would.) Every speed-denominated gate
+                           // below was rescaled with it (~×1.45, √(4200/2000))
+                           // so the tuned behavior survives the heavier world.
 const REST_PAPER = .12;    // letters + pills thud like cut card stock
-const REST_TOY   = .22;    // the toys land with a touch more life
-const REST_MIN   = 160;    // impacts slower than this never bounce (px/s)
+const REST_TOY   = .16;    // the toys land nearly dead — slabs, not balls
+const REST_MIN   = 230;    // impacts slower than this never bounce (px/s)
 const REST_AIR   = .12;    // …and only bodies airborne at least this long (s)
                            // may bounce — grounded bodies re-crossing the
                            // speed gate on injected gravity was pure jitter
@@ -640,7 +641,9 @@ const POS_CORR   = 1;      // px cap on that correction, per contact per pass �
 const SLOP       = .5;     // px of overlap we quietly allow
 const VEL_ITERS  = 6;      // velocity solver passes
 const POS_ITERS  = 6;      // position solver passes — wedged pairs must converge
-const MAXV       = 3400;   // fling speed cap, px/s
+const MAXV       = 4900;   // fling speed cap, px/s — raised with G (~×√2.1) so
+                           // a hard throw still arcs the same; below the cap
+                           // the fling stays 1:1 with the pointer samples
 const LIN_DAMP   = .04;    // faint air drag, 1/s
 const ANG_DAMP   = .35;    // faint spin drag, 1/s
 const SLEEP_LIN  = 9;      // px/s — under this a body counts as still
@@ -656,13 +659,13 @@ const SLEEP_MV   = 2;      // px a body may move in the very frame it sleeps —
 const SLEEP_WT   = .7;     // seconds inside the drift window that also count as
 const WIN_DX     = 3;      //   settled: a decaying rock that stays within this
 const WIN_DA     = .12;    //   box (px, rad) of one spot, touching, slower than
-const WIN_V      = 100;    //   these (px/s, rad/s), sleeps even though it never
+const WIN_V      = 140;    //   these (px/s, rad/s), sleeps even though it never
 const WIN_A      = 1.5;    //   passes the instantaneous stillness gates…
 const WIN_STOP   = 30;     //   …but only at an instant it moves slower than
                            //   this, so the freeze itself is invisible
 const SETTLE_ANG = 6;      // extra spin damping while slow + touching, 1/s
 const SETTLE_LIN = 2;      // extra slide damping while slow + touching, 1/s
-const SETTLE_V   = 80;     // how slow "slow + touching" is, px/s
+const SETTLE_V   = 110;    // how slow "slow + touching" is, px/s
 const SETTLE_1PT = 3;      // spin-damping multiplier while balanced on a point
 const SUP_W      = 3;      // px of support width that still counts as a point
 const SNAP_MAX   = 1.2;    // px — the most a sleep-frame snap may move a body
@@ -675,16 +678,24 @@ const SLEEP_PEN  = 1;      // px into a wall or the floor a body may be at the
 const ISL_MAXB   = 64;     // island scratch capacity (bodies stay far under)
 const ISL_DEFER  = 240;    // frames an island may defer its freeze waiting to
                            // come clean before a true jam is frozen as-is
-const MAX_STEP   = 1 / 58; // display frames longer than this integrate in two
-                           // half steps: a sustained 30-50Hz leg pumps ~1px of
-                           // gravity-sink-and-correct sawtooth into every
-                           // contact per frame — the engine under the rocking
-const SUB3_STEP  = 1 / 40; // …and frames longer than THIS integrate in three
-                           // (30Hz runs ~11ms steps): at 16.7ms a fast-dropping
-                           // thin letter still cleared a pill edge in one step,
-                           // and the leftover sawtooth kept whole piles rocking
-                           // for double-digit seconds
-const WAKE_V     = 80;     // contact approach speed that wakes a sleeper
+const MAX_STEP   = 1 / 110; // the most world time one solver substep may
+                            // integrate; a display frame splits into
+                            // ceil(dt/MAX_STEP) substeps (up to MAX_SUB).
+                            // THE knob that keeps heavy gravity solvable: the
+                            // solver absorbs g·dt of injected approach speed
+                            // at every support contact per substep, and every
+                            // settle gate was tuned around the ~35px/s of the
+                            // original world (2000 ÷ 60Hz). At G = 4200 a raw
+                            // 60Hz frame injects 70px/s — piles that settled
+                            // in 6s churned for 30+ — so the substep count now
+                            // scales instead: 60Hz runs two ~8ms substeps,
+                            // 30Hz four, and each solver pass works the same
+                            // ~35px/s regime regardless of gravity or display
+                            // (fast thin letters also clear pill edges in
+                            // proportionally smaller bites — less tunneling)
+const MAX_SUB    = 5;       // substep cap — a stalled tab's 33ms clamp frame
+                            // runs 4; 5 is headroom, never a spiral
+const WAKE_V     = 115;    // contact approach speed that wakes a sleeper
 const WAKE_SOON_T = .5;    // a sleeper impact-woken within this (s) of sleeping…
 const WAKE_SOON_V = 1.5;   // …by less than this × WAKE_V keeps its progress:
 const WAKE_REST  = .1;     // …it re-sleeps after only this much stillness (s)
@@ -694,7 +705,7 @@ const PEN_WAKE_T = .3;     // …for this long: a sleeper wakes to yield, and an
 const WEDGE_FIX  = 1.2;    // px/frame the medic walks a wedged awake body out
                            // of true overlap (tunneled pairs churn too fast
                            // for the stillness-gated bleed to ever run)
-const WEDGE_V    = 150;    // …but only while it is slow enough to be stuck,
+const WEDGE_V    = 210;    // …but only while it is slow enough to be stuck,
                            // not flying through a landing's transient
 const WEDGE_DRAIN = .25;   // fraction of the current deepest overlap added to
                            // the medic's per-frame walk: a 10px tunnel drains
@@ -709,7 +720,7 @@ const MEDIC_T    = 2;      // s of persistent deep pen (or of pinned buzzing)
                            // every SLEEPER it is jammed against woken so the
                            // load can ride up — then MEDIC_T of standing back
                            // (an every-frame escalation was a churn engine)
-const BUZZ_V     = 50;     // px/s — vibrating faster than this while pinned in
+const BUZZ_V     = 70;     // px/s — vibrating faster than this while pinned in
                            // one spot for MEDIC_T straight counts as a buzz
 const ISL_ASSIST = 2000;   // ms an island may defer its freeze before the
                            // sleep-frame recap loosens from SNAP_MAX to
@@ -732,7 +743,20 @@ const TOY_DENS   = 1.4;    // toys are denser than letters
 const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const TAP_PX     = 8;      // pointer travel under this…
 const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
-const IP_SIDE    = 1.52;   // iPhone model box ÷ cap height (≈1.5× cap tall after margin)
+
+/* ---- real hardware, in millimetres — on-screen scale derives from it.
+   The r1 keeps the on-screen size it has always had (R1_CAP of the
+   headline's cap height) and anchors the system; every other object's
+   size comes off this table, so the pile sits at true relative scale
+   and future objects join the same system. iPhone 17 Pro figures are
+   the 2025 hardware's published 150.0 × 71.9 × 8.75 mm. (Collider
+   depth ratios stay the BAKES' own measures — R1_THICK, the phone mesh
+   header — so silhouettes keep matching the drawn pixels exactly.) */
+const R1_MM      = { w:78,   h:78,  d:13 };     // rabbit r1
+const PHONE_MM   = { w:71.9, h:150, d:8.75 };   // iPhone 17 Pro
+const R1_CAP     = 1.25;                        // r1 side ÷ cap height — the anchor
+const PHONE_H    = PHONE_MM.h / R1_MM.h;        // phone height ÷ r1 side ≈ 1.923
+
 const MODEL_PAD  = 3;      // px of transparent margin a 3D toy's canvas keeps
                            // outside its model's worst-case pose — a canvas cut
                            // to the face-on size shaves the corners off every
@@ -751,20 +775,35 @@ const HOLD_WMAX  = 12;     // rad/s spin cap in the hand — no helicoptering
 
 /* ---- depth-tumble (the WebGL toys only; the flat r1 fallback has none) ---- */
 const R1_THICK      = .18;   // r1 depth ÷ height — its bake spans z ±0.1814 on a 2.0 model
-const R1_DAMP_AIR   = 1.2;   // tumble decay while airborne, 1/s
-const R1_DAMP_GND   = 3.5;   // tumble decay while touching but still sliding, 1/s
-const R1_KICK_FLING = .002;  // fling speed (px/s) → tumble (rad/s)
-const R1_KICK_HIT   = .0032; // impact speed (px/s) → tumble (rad/s)
-const R1_KICK_MIN   = 140;   // impacts slower than this don't tumble (px/s)
-const R1_W_MAX      = 8;     // tumble speed cap, rad/s — a max throw stays under ~1.5 turns
-const R1_DAMP_SET   = 6;     // grounded spin die-off, 1/s
-const R1_FLAT_K     = 11;    // how hard gravity tips a grounded slab off its
+const R1_DAMP_AIR   = 1.6;   // tumble decay while airborne, 1/s — heavy objects
+                             // spin reluctantly; a hard fling reads ~½–1 turn
+const R1_DAMP_GND   = 7;     // tumble decay while touching but still sliding, 1/s
+const R1_KICK_FLING = .0014; // fling speed (px/s) → tumble (rad/s)
+const R1_KICK_HIT   = .0016; // impact speed (px/s) → tumble (rad/s)
+const R1_KICK_MIN   = 240;   // impacts slower than this don't tumble (px/s)
+const R1_W_MAX      = 5.5;   // tumble speed cap, rad/s — chunky, never fluttery
+const R1_DAMP_SET   = 32;    // grounded spin die-off, 1/s — with R1_FLAT_K this
+                             // is the topple's critical damping (2√(2K) = 32.2):
+                             // no oscillation past flat, no residual wobble,
+                             // and any grounded spin dies on arrival
+const R1_FLAT_K     = 130;   // how hard gravity tips a grounded slab off its
                              // edge and onto a face, 1/s². Seen from the side,
                              // a device lying on the floor shows its profile:
                              // rx = ±90° (screen-down or back-down) is where it
-                             // wants to be, upright is the ridge it falls off
-const R1_FLAT_NUDGE = 1.1;   // 1/s² — breaks a perfect edge balance
+                             // wants to be, upright is the ridge it falls off.
+                             // Sized so a 45°-off landing is visibly flat in
+                             // ~0.25s and dead in ~0.4 — a heavy slab tips
+                             // DECISIVELY (11 was a seconds-long crawl that
+                             // read as weightless magic)
+const R1_FLAT_NUDGE = 12;    // 1/s² — breaks a perfect edge balance (scaled
+                             // with K so the push off the ridge stays decisive)
 const R1_FLAT_EPS   = .045;  // rad — how square to a face before it may rest
+const R1_GND_V      = 90;    // px/s — slower than this while touching counts as
+                             // grounded: the topple engages while the slide is
+                             // still dying, so the tip reads as one motion
+const FACE_WN       = 32;    // rad/s — the pickup spring that turns a held toy
+                             // to face the viewer (screen out, the showcase
+                             // pose): critically damped, ~0.15s, no bounce
 const R1_WAKE_DW    = 3;     // px of hull GROWTH a toy may accumulate before it
                              // tells the sleepers around it. The hull itself is
                              // re-cut every single frame — a dozen verts are
@@ -779,13 +818,14 @@ const R1_CHAMFER    = .3;    // of each silhouette edge, the most its corner may
                              // be cut back — at .3 a face-on slab comes out as
                              // exactly the octagon the toys always had, so
                              // nothing about a toy at rest changes
-const R1_PIVOT_MAX  = 2;     // px one re-cut may drop a grounded toy so the
+const R1_PIVOT_MAX  = 8;     // px one re-cut may drop a grounded toy so the
                              // silhouette's foot stays on the floor: a slab
                              // toppling onto its face pivots ON the contact — it
                              // does not shrink away from the floor and then fall
-                             // back to it. Capped under the eye's own floor so
-                             // the correction is never a visible step; gravity
-                             // closes whatever is left over.
+                             // back to it. Sized for the decisive topple (the
+                             // phone's silhouette can shed ~10px a frame at the
+                             // tip's fastest) — the correction hides inside that
+                             // motion, and gravity closes whatever is left over.
 
 let mode = "seated";    // seated | live | homing   (letters + pills — toys never seat)
 let raf = 0, lastT = 0;
@@ -2171,11 +2211,11 @@ function step(t){
 
   gPerpX = -gravY / G; gPerpY = gravX / G;   // across-gravity unit axis
 
-  // long display frames split in two — the longest in three: the solver
-  // sees at most ~MAX_STEP of gravity at a time, so a 30Hz phone isn't
-  // a different physics world (and a 33ms frame can't tunnel a letter
-  // through a pill edge in a single 16.7ms bite)
-  const nSub = dtF > SUB3_STEP ? 3 : dtF > MAX_STEP ? 2 : 1;
+  // every display frame splits into substeps of at most MAX_STEP: the
+  // solver sees the same few px/s of injected gravity per pass at 60Hz
+  // as at 30, at G = 4200 as it did at 2000 — one physics world on
+  // every display, and no 33ms frame tunneling a letter through a pill
+  const nSub = Math.min(MAX_SUB, Math.ceil(dtF / MAX_STEP));
   for(let sub = 0; sub < nSub; sub++) subStep(dtF / nSub, t, W, H, sub === 0);
   finishStep(dtF, t, W, H);
 }
@@ -2247,13 +2287,13 @@ function subStep(dt, t, W, H, first){
       if(hb.va < -HOLD_WMAX) hb.va = -HOLD_WMAX;
     }
     if(hb.tumbles){
-      // carried: no posed tilt — residual spin just dies out in the hand
-      // and the toy hangs at whatever angle you caught it at
-      const dk = Math.exp(-dt * 4);
-      hb.wx *= dk; hb.wy *= dk;
-      hb.rx = dAng(hb.rx + hb.wx * dt);
-      hb.ry = dAng(hb.ry + hb.wy * dt);
-      hb.poseCalm = false;                     // it re-settles after release
+      // in hand the device turns to face the viewer — screen out, the
+      // showcase pose (the flood, the centred caption and this screen are
+      // the point) — and holds there while the grip pendulum above keeps
+      // the in-plane dangle. Critically damped, closed form, so the turn
+      // is exact and stable at any dt; a knock from the pile dips the
+      // pose a degree or two and the spring takes it straight back.
+      faceSpring(hb, dt);
     }
   }
 
@@ -2666,6 +2706,25 @@ function kickTumble(b, speed, nx, ny){
 }
 
 
+/* a held toy faces the viewer: both depth axes ease to exactly 0 on a
+   critically damped spring (FACE_WN), integrated in closed form — for
+   ζ = 1, from (φ, w) the true solution over dt is
+     φ' = (φ + (w + ωφ)·dt)·e^(−ω·dt),   w' = (w − ω(w + ωφ)·dt)·e^(−ω·dt)
+   — exact at any dt, so the turn cannot go unstable at the 30fps clamp
+   and never overshoots. dAng picks the short way around from a back-on
+   catch. On release the pose is face-on and the throw's tumble kick
+   takes it from there. */
+function faceSpring(b, dt){
+  const e = Math.exp(-FACE_WN * dt);
+  let p = dAng(b.rx), w = b.wx, k = (w + FACE_WN * p) * dt;
+  b.rx = (p + k) * e;
+  b.wx = (w - FACE_WN * k) * e;
+  p = dAng(b.ry); w = b.wy; k = (w + FACE_WN * p) * dt;
+  b.ry = (p + k) * e;
+  b.wy = (w - FACE_WN * k) * e;
+  b.poseCalm = false;              // it re-settles (or re-kicks) after release
+}
+
 /* integrate the tumble each awake frame (the held case lives in step).
    Fully organic: no target poses, no settle spring — spin just damps
    away and the r1 stays at whatever angle it stopped at. It lands
@@ -2675,7 +2734,7 @@ const HPI2 = Math.PI / 2;
 const faceOf = th => Math.round((th - HPI2) / Math.PI) * Math.PI + HPI2;  // flat on the floor
 function tumbleStep(b, dt){
   if(b.poseCalm) return;                 // frozen mid-pose until the next kick
-  const grounded = b.touch && Math.hypot(b.vx, b.vy) < 50;
+  const grounded = b.touch && Math.hypot(b.vx, b.vy) < R1_GND_V;
   const dk = Math.exp(-(grounded ? R1_DAMP_SET
                        : b.touch ? R1_DAMP_GND : R1_DAMP_AIR) * dt);
   b.wx *= dk; b.wy *= dk;
@@ -3316,13 +3375,15 @@ function spawnToy(which){
   if(!hullsBuilt) buildHulls();
   const F = fontPx();
   const cap = capHeightPx(F);
+  const r1side = Math.round(cap * R1_CAP);   // the anchor: everything scales off this
   let spec;
   if(which === "iphone"){
-    spec = makeIphoneGL(Math.round(cap * IP_SIDE));
+    // true scale: the DRAWN phone (model box × .985 margin) comes out
+    // PHONE_H × the r1's side — a real iPhone against a real r1
+    spec = makeIphoneGL(Math.round(r1side * PHONE_H / .985));
     if(!spec) return;                      // no GL, no mesh: the pile gets no phone
   } else {
-    const side = Math.round(cap * 1.25);
-    spec = makeRabbitGL(side) || makeRabbit(side);
+    spec = makeRabbitGL(r1side) || makeRabbit(r1side);
   }
   const b = toyBody(spec.el, spec.w, spec.h, spec.cut, spec.boxW, spec.boxH);
   if(spec.draw3d){
