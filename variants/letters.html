@@ -668,6 +668,28 @@ const SETTLE_LIN = 2;      // extra slide damping while slow + touching, 1/s
 const SETTLE_V   = 110;    // how slow "slow + touching" is, px/s
 const SETTLE_1PT = 3;      // spin-damping multiplier while balanced on a point
 const SUP_W      = 3;      // px of support width that still counts as a point
+const STOP_TOY   = 30;     // px/s — static friction. Exponential damping has an
+                           // asymptotic tail: bodies glided at a few px/s for a
+                           // second-plus before the sleep gates finally froze
+                           // them. Real objects grip and stop. A grounded,
+                           // unheld body whose contact points ALL move slower
+                           // than its kind's grip speed (|v| + |ω|·radius, the
+                           // fastest any point of it can move) in a QUIET
+                           // frame stops dead — velocities zeroed outright.
+const STOP_PILL  = 28;     // …the pills' grip speed…
+const STOP_LTR   = 24;     // …letters a touch lower, so slides still read.
+                           // The gates that keep the stop honest:
+const QUIET_J    = .35;    // × m·G·dt — summed |change| in this body's contact
+                           // impulses under which the frame counts as steady
+                           // support rather than a strike or a shove (a pushed
+                           // body reads loud and keeps moving; a resting one,
+                           // however buried, reads near zero)
+const STOP_MIN_C = 2;      // contacts bracing the body before it may grip — a
+                           // letter tipping over its single corner is FALLING,
+                           // not settling, and must keep falling
+const STOP_TILT  = .05;    // × G of in-plane tilt gravity past which the stop
+                           // stands down wholesale: a leaning world creeps by
+                           // design, and the sleep gates alone decide there
 const SNAP_MAX   = 1.2;    // px — the most a sleep-frame snap may move a body
 const PRESLEEP_FIX = .6;   // px per 60Hz-frame of overlap quietly bled while
                            // stilling (scaled by dt so 30Hz bleeds as fast)
@@ -781,6 +803,12 @@ const R1_DAMP_GND   = 7;     // tumble decay while touching but still sliding, 1
 const R1_KICK_FLING = .0014; // fling speed (px/s) → tumble (rad/s)
 const R1_KICK_HIT   = .0016; // impact speed (px/s) → tumble (rad/s)
 const R1_KICK_MIN   = 240;   // impacts slower than this don't tumble (px/s)
+const R1_KICK_AIR   = .3;    // s a party must have genuinely FLOWN before its
+                             // impact may kick a tumble (a real drop, not the
+                             // 15px hop of a slab's own settling rock — those
+                             // hops cleared the REST_AIR bounce gate and their
+                             // corner slams re-randomized an almost-finished
+                             // topple every 200ms, the last of the snapping)
 const R1_W_MAX      = 5.5;   // tumble speed cap, rad/s — chunky, never fluttery
 const R1_DAMP_SET   = 32;    // grounded spin die-off, 1/s — with R1_FLAT_K this
                              // is the topple's critical damping (2√(2K) = 32.2):
@@ -798,12 +826,41 @@ const R1_FLAT_K     = 130;   // how hard gravity tips a grounded slab off its
 const R1_FLAT_NUDGE = 12;    // 1/s² — breaks a perfect edge balance (scaled
                              // with K so the push off the ridge stays decisive)
 const R1_FLAT_EPS   = .045;  // rad — how square to a face before it may rest
-const R1_GND_V      = 90;    // px/s — slower than this while touching counts as
+const R1_GND_V      = 110;   // px/s — slower than this while touching counts as
                              // grounded: the topple engages while the slide is
                              // still dying, so the tip reads as one motion
-const FACE_WN       = 32;    // rad/s — the pickup spring that turns a held toy
+                             // (was 90: a landing that kept corner-walking at
+                             // ~100px/s held its topple off for half a second)
+const R1_COMMIT     = 1.5;   // rad/s — grounded tumble momentum past this
+                             // COMMITS the topple to the face AHEAD in the
+                             // direction of travel, chosen once per landing
+                             // and held until that axis reaches its face or
+                             // the body leaves the ground. The nearest-face
+                             // pull alone flipped targets the instant a
+                             // landing crossed the halfway ridge — the object
+                             // visibly reversed and re-toppled the other way,
+                             // the snap. A commit finishes the motion the
+                             // object already has; spin below this is not
+                             // real motion and is GRIPPED to zero at the
+                             // topple's engage (and on sub-threshold kicks),
+                             // so every turn is either a committed ride or a
+                             // from-rest tip toward the nearest face — and
+                             // neither can ever reverse mid-way
+const R1_GRIP_T     = .07;   // s a gripped axis holds its pose before weight
+                             // may tip it onward — the beat between "friction
+                             // caught it" and "gravity wins". Without the
+                             // dwell a grip and the from-rest tip shared one
+                             // frame, and a skid's dying outbound drift read
+                             // as instantly reversing — a stop the eye (and
+                             // a 30Hz display) never got to see
+const FACE_WN       = 15;    // rad/s — the pickup spring that turns a held toy
                              // to face the viewer (screen out, the showcase
-                             // pose): critically damped, ~0.15s, no bounce
+                             // pose): critically damped, zero overshoot, and
+                             // deliberately unhurried — a catch off a settled
+                             // sliver (90° away) reads ≤3° at ~350ms, a
+                             // back-on catch at ~400ms. The object is TURNED
+                             // in the hand; 32 snapped square in a quarter
+                             // second and read as a flick, not a wrist
 const R1_WAKE_DW    = 3;     // px of hull GROWTH a toy may accumulate before it
                              // tells the sleepers around it. The hull itself is
                              // re-cut every single frame — a dozen verts are
@@ -1009,6 +1066,9 @@ function mkBody(el, kind){
     sleptAt:-1e9,                // when it last fell asleep (wake hysteresis)
     penT:0, penDeep:0, penF:0,   // deep-pen stint clock + clean-streak timer
     supN:0, supLo:0, supHi:0,    // this frame's supporting contacts + their span
+    cn:0, qj:0,                  // substep contact count + the frame's summed
+                                 // contact-impulse change — the static stop's
+                                 // bracing and quietness gates
     pinx:0, piny:0,              // plane(s) this substep's position passes had
                                  // to press it out of (squeeze propagation)
     awN:0, awX:0, awY:0,         // audit-wake counter — truly wedged pairs are
@@ -1023,6 +1083,12 @@ function mkBody(el, kind){
     draw3d:null,                 // a WebGL toy hangs its painter here
     tumbles:false,               // a 3D toy carries real depth-tumble state:
     rx:0, ry:0, wx:0, wy:0,      //   pitch/yaw + angular velocities (rad, rad/s)
+    tgtRx:NaN, tgtRy:NaN,        //   committed topple target per axis (NaN:
+                                 //   nearest-face; set once per landing)
+    dwX:0, dwY:0,                //   grip dwell per axis — a beat of held pose
+                                 //   between the grip and the onward tip
+    gnd:0,                       //   was grounded last tumble step (the topple-
+                                 //   engage edge runs the momentum census)
     poseCalm:true, lastKick:0,   //   settled flag + impact-kick rate limiter
     thick3d:0,                   //   depth ÷ height, per model (r1 ≠ iPhone)
     toyW:0, toyH:0, toyCut:0,    // the face-on toy box…
@@ -1542,7 +1608,8 @@ addEventListener("dblclick", goHome);
 const contacts = [];
 for(let i = 0; i < 256; i++){
   contacts.push({ a:null, b:null, px:0, py:0, nx:0, ny:0, pen:0, pen0:0, fid:0,
-                  warm:-1, rax:0, ray:0, rbx:0, rby:0, mN:1, mT:1, bias:0, jn:0, jt:0 });
+                  warm:-1, rax:0, ray:0, rbx:0, rby:0, mN:1, mT:1, bias:0, jn:0, jt:0,
+                  jn0:0, jt0:0 });
 }
 let nContacts = 0;
 
@@ -1577,6 +1644,7 @@ function addContact(A, B, px, py, nx, ny, pen, fid){
   const c = contacts[nContacts++];
   c.a = A; c.b = B; c.px = px; c.py = py; c.nx = nx; c.ny = ny;
   c.pen = pen; c.fid = fid; c.jn = 0; c.jt = 0; c.warm = -1;
+  c.jn0 = 0; c.jt0 = 0;    // a brand-new contact's whole impulse counts as change
 }
 
 function updateWorld(b){
@@ -1767,6 +1835,7 @@ function wakeHit(b, vn, t){
 function prepContact(c, dt, t){
   const A = c.a, B = c.b;
   A.touch = 1; if(B) B.touch = 1;
+  A.cn++; if(B) B.cn++;           // how braced each body is this substep
   c.pen0 = c.pen;                 // the narrowphase truth — solvePos drains
                                   // c.pen as bookkeeping, the medic reads this
   c.rax = c.px - A.x; c.ray = c.py - A.y;
@@ -1810,9 +1879,11 @@ function prepContact(c, dt, t){
   }
   // a hard-enough hit sends a 3D toy tumbling in depth (it rides the
   // solver's contacts — no collision detection of its own). Only a party
-  // that actually FLEW here may kick: a grounded pile shuffling its load
-  // is pressure, not a strike, and must never re-spin a settling toy
-  if(vn < -R1_KICK_MIN && air > REST_AIR){
+  // that actually FLEW here may kick — R1_KICK_AIR of real flight, not
+  // REST_AIR's bounce-worth: a grounded pile shuffling its load is
+  // pressure, and a settling slab's own rock-hops are housekeeping;
+  // neither may re-spin an almost-finished topple
+  if(vn < -R1_KICK_MIN && air > R1_KICK_AIR){
     if(A.tumbles) kickTumble(A, -vn, c.nx, c.ny);
     else if(B && B.tumbles) kickTumble(B, -vn, c.nx, c.ny);
   }
@@ -1840,6 +1911,7 @@ function warmContact(c){
   if(c.warm < 0) return;
   const A = c.a, B = c.b;
   c.jn = prevJn[c.warm]; c.jt = prevJt[c.warm];
+  c.jn0 = c.jn; c.jt0 = c.jt;    // the quiet meter reads change AGAINST this
   const tx = -c.ny, ty = c.nx;
   const px = c.jn * c.nx + c.jt * tx, py = c.jn * c.ny + c.jt * ty;
   A.vx -= px * A.iM; A.vy -= py * A.iM;
@@ -2231,8 +2303,9 @@ function subStep(dt, t, W, H, first){
   // clock, and the pile churned for minutes instead of settling
   for(const b of bodies){
     b.sim = simActive(b, t);
-    if(first){ b.touch = 0; b.penDeep = 0; }
+    if(first){ b.touch = 0; b.penDeep = 0; b.qj = 0; }  // qj sums all substeps
     b.supN = 0;
+    b.cn = 0;                 // contact count, like supN, is a per-substep fact
     b.pinx = 0; b.piny = 0;   // plane-pin flags are per-substep facts
     // held is never immovable — just modestly heavier to the pile, so a
     // shove nudges it in the hand instead of knocking it off the finger
@@ -2379,13 +2452,20 @@ function subStep(dt, t, W, H, first){
     for(let i = 0; i < nContacts; i++) if(!contacts[i].b) solvePlanePos(contacts[i], W, H);
   }
 
-  // remember this pass's impulses for the next one's warm start
+  // remember this pass's impulses for the next one's warm start — and bank
+  // each contact's |change| against its warm start into both parties' quiet
+  // meters: at rest the warm impulses carry the whole load and the solver
+  // adds ~nothing, so a resting body reads near-zero however deeply it is
+  // buried, while a strike or a shove (or a brand-new contact) reads loud
   nPrev = nContacts;
   for(let i = 0; i < nContacts; i++){
     const c = contacts[i];
     prevA[i] = c.a.id; prevB[i] = c.b ? c.b.id : -1;
     prevF[i] = c.fid; prevJn[i] = c.jn; prevJt[i] = c.jt;
     prevPX[i] = c.px; prevPY[i] = c.py;
+    const dn = c.jn - c.jn0, dtj = c.jt - c.jt0;
+    const dq = (dn < 0 ? -dn : dn) + (dtj < 0 ? -dtj : dtj);
+    c.a.qj += dq; if(c.b) c.b.qj += dq;
   }
 
   // last of all, a 3D toy's collider is re-cut from the pose this substep
@@ -2412,6 +2492,7 @@ function finishStep(dt, t, W, H){
     }
     if(b.tumbles && !isFinite(b.rx + b.ry + b.wx + b.wy + b.hullW + b.hullH)){
       b.rx = b.ry = b.wx = b.wy = 0;      // level the pose, forget the growth
+      b.tgtRx = NaN; b.tgtRy = NaN;       // (and any committed topple with it)
       b.poseCalm = true;                  // owed to sleepers, and re-cut the
       b.hullGrow = 0;                     // face-on hull the pose now claims
       r1TrackHull(b, dt);                 // (the NaN pose never matches, so it cuts)
@@ -2511,6 +2592,31 @@ function finishStep(dt, t, W, H){
         b.penF += dt;
         if(b.penF > .5) b.penT = 0;
       }
+    }
+  }
+
+  // static friction — grip, don't glide. A grounded, unheld body stops
+  // DEAD (velocities zeroed outright, this frame) the moment all three
+  // hold: every point of it is under its kind's grip speed (|v|+|ω|·rad
+  // bounds the fastest contact point); its frame was QUIET (summed
+  // contact-impulse change under QUIET_J·m·G·dt — steady support, not a
+  // strike or a shove: a body still being pushed reads loud and keeps
+  // moving); and it is BRACED by STOP_MIN_C contacts (a letter tipping
+  // over its lone corner is falling, not settling — friction cannot hold
+  // a body against rotation about its only support). Positions never
+  // move, so nothing pops; tilt gravity with real in-plane lean stands
+  // the whole stop down, so tilted piles keep their creep. The sleep
+  // gates stay the final authority — bodies simply reach them already
+  // still instead of drifting the last few px/s for a second-plus.
+  if(gravX < STOP_TILT * G && gravX > -STOP_TILT * G){
+    for(const b of bodies){
+      if(!b.sim || b.sleeping || b === held || !b.touch || b.entering ||
+         b.cn < STOP_MIN_C) continue;
+      if(b.qj > QUIET_J * b.m * G * dt) continue;
+      const gripV = b.kind === "letter" ? STOP_LTR
+                  : b.kind === "pill"   ? STOP_PILL : STOP_TOY;
+      if(Math.hypot(b.vx, b.vy) + Math.abs(b.va) * b.rad >= gripV) continue;
+      b.vx = 0; b.vy = 0; b.va = 0;
     }
   }
 
@@ -2694,15 +2800,28 @@ function clampW(v){ return Math.max(-R1_W_MAX, Math.min(R1_W_MAX, v)); }
    picks the axis mix (floors mostly pitch, walls mostly yaw), a little
    randomness keeps repeats from looking mechanical, and part of the
    old spin is scrubbed the way a real hit would. Rate-limited so a
-   two-point landing kicks once, not twice. */
+   two-point landing kicks once, not twice. Momentum-committed, like
+   everything grounded: an axis already visibly turning keeps its
+   direction (a slam reinforces the rotation it came from — the old
+   coin-flip re-randomized an in-progress topple, which read as the
+   object snapping to a new angle mid-turn), and a result below
+   R1_COMMIT on a touching body is gripped to zero outright — a strike
+   either really flips the slab or the slab shudders and stays. */
 function kickTumble(b, speed, nx, ny){
   const now = performance.now();
   if(now - b.lastKick < 70) return;
   b.lastKick = now;
   b.poseCalm = false;
+  b.tgtRx = NaN; b.tgtRy = NaN;   // a strike is new momentum: the topple re-decides
   const k = Math.min(R1_W_MAX, speed * R1_KICK_HIT);
-  b.wx = clampW(b.wx * .6 + rspin() * k * (.25 + .75 * Math.abs(ny)) * (.6 + Math.random() * .4));
-  b.wy = clampW(b.wy * .6 + rspin() * k * (.25 + .75 * Math.abs(nx)) * (.6 + Math.random() * .4));
+  const sx = b.wx > .3 ? 1 : b.wx < -.3 ? -1 : rspin();
+  const sy = b.wy > .3 ? 1 : b.wy < -.3 ? -1 : rspin();
+  b.wx = clampW(b.wx * .6 + sx * k * (.25 + .75 * Math.abs(ny)) * (.6 + Math.random() * .4));
+  b.wy = clampW(b.wy * .6 + sy * k * (.25 + .75 * Math.abs(nx)) * (.6 + Math.random() * .4));
+  if(b.touch){                    // grounded grip: no sub-commit wobble survives
+    if(b.wx < R1_COMMIT && b.wx > -R1_COMMIT && b.wx !== 0){ b.wx = 0; b.dwX = R1_GRIP_T; }
+    if(b.wy < R1_COMMIT && b.wy > -R1_COMMIT && b.wy !== 0){ b.wy = 0; b.dwY = R1_GRIP_T; }
+  }
 }
 
 
@@ -2723,6 +2842,8 @@ function faceSpring(b, dt){
   b.ry = (p + k) * e;
   b.wy = (w - FACE_WN * k) * e;
   b.poseCalm = false;              // it re-settles (or re-kicks) after release
+  b.tgtRx = NaN; b.tgtRy = NaN;    // the hand overrode any committed topple
+  b.gnd = 0;                       // …so the release landing runs a fresh census
 }
 
 /* integrate the tumble each awake frame (the held case lives in step).
@@ -2732,9 +2853,53 @@ function faceSpring(b, dt){
 const flatOf = th => Math.round(th / Math.PI) * Math.PI;          // square to us
 const HPI2 = Math.PI / 2;
 const faceOf = th => Math.round((th - HPI2) / Math.PI) * Math.PI + HPI2;  // flat on the floor
+/* the face AHEAD of angle th moving at w: the nearest rest angle when the
+   motion already points at it, otherwise the next one along the spin.
+   `near` is the axis's own nearest (faceOf for rx, flatOf for ry) — faces
+   stay the only destinations either way; this only ever changes WHICH. */
+function aheadOf(th, w, near){
+  const d = dAng(near - th);
+  return ((d > 0) === (w > 0) && d !== 0) ? near
+       : near + (w > 0 ? Math.PI : -Math.PI);
+}
+/* one axis's momentum census: spin past R1_COMMIT earns a commit to the
+   face ahead — scaled by the journey that commit implies. An axis already
+   over the ridge commits at the plain threshold (its travel is short and
+   the field strong the whole way); one barely off its old face would ride
+   ~180° from a standing start through the field's antipodal null — a
+   two-second crawl that destabilized the body — so a full flip must be
+   PAID FOR with proportionally more spin. Returns the target, or NaN for
+   "this is not real motion" (the caller grips or brakes it). */
+function commitOf(th, w, near){
+  const aw = w < 0 ? -w : w;
+  if(aw <= R1_COMMIT) return NaN;
+  const tgt = aheadOf(th, w, near);
+  const trav = Math.abs(dAng(tgt - th));
+  return aw >= R1_COMMIT * (trav > HPI2 ? trav / HPI2 : 1) ? tgt : NaN;
+}
 function tumbleStep(b, dt){
   if(b.poseCalm) return;                 // frozen mid-pose until the next kick
+  if(!b.touch){ b.tgtRx = NaN; b.tgtRy = NaN;     // left the ground: the next
+                b.dwX = 0; b.dwY = 0; }           // landing decides afresh
   const grounded = b.touch && Math.hypot(b.vx, b.vy) < R1_GND_V;
+  // THE ENGAGE EDGE runs the momentum census FIRST, on the raw skid-carried
+  // spin — before grounded damping takes its first bite. (It used to run
+  // after: a landing carrying 1.7 rad/s measured 1.3 by census time, missed
+  // the commit, was gripped, and tipped back the other way — the snap, one
+  // layer deeper.) Sub-threshold spin is not real motion and is GRIPPED to
+  // zero on the spot — the depth twin of the static-friction stop — so every
+  // grounded turn is either a committed ride or a from-rest tip: no reversals.
+  if(grounded && !b.gnd){
+    if(isNaN(b.tgtRx)){
+      b.tgtRx = commitOf(b.rx, b.wx, faceOf(b.rx));
+      if(isNaN(b.tgtRx) && b.wx !== 0){ b.wx = 0; b.dwX = R1_GRIP_T; }
+    }
+    if(isNaN(b.tgtRy)){
+      b.tgtRy = commitOf(b.ry, b.wy, flatOf(b.ry));
+      if(isNaN(b.tgtRy) && b.wy !== 0){ b.wy = 0; b.dwY = R1_GRIP_T; }
+    }
+  }
+  b.gnd = grounded ? 1 : 0;
   const dk = Math.exp(-(grounded ? R1_DAMP_SET
                        : b.touch ? R1_DAMP_GND : R1_DAMP_AIR) * dt);
   b.wx *= dk; b.wy *= dk;
@@ -2742,31 +2907,81 @@ function tumbleStep(b, dt){
   if(grounded){
     // weight decides which way it topples: rx wants ±90° (the device flat on
     // the floor, screen-down or back-down, so we see its profile), ry wants
-    // 0 or π (square to us, not turned onto a side edge)
-    b.wx += R1_FLAT_K * Math.sin(2 * b.rx) * dt;
-    b.wy += -R1_FLAT_K * Math.sin(2 * b.ry) * dt;
-    // stood perfectly upright it has nowhere to fall — give it a reason
-    if(Math.cos(2 * b.rx) > .985 && Math.abs(b.wx) < .06)
-      b.wx += (Math.cos(b.rx) >= 0 ? 1 : -1) * R1_FLAT_NUDGE * dt;
-    if(Math.cos(2 * b.ry) < -.985 && Math.abs(b.wy) < .06)
-      b.wy += (b.ry >= 0 ? -1 : 1) * R1_FLAT_NUDGE * dt;
-  }
+    // 0 or π (square to us, not turned onto a side edge). WHICH ±90°, which
+    // of 0/π, is momentum's call: an axis that lands with real spin (past
+    // R1_COMMIT) commits once to the face ahead of its motion, and the
+    // committed field 2K·sin(target − angle) walks it the whole way there —
+    // one sign the entire route, so a topple can never stall and reverse,
+    // and the same 2K stiffness at the face as the nearest-face pull, so
+    // the arrival stays exactly critically damped against R1_DAMP_SET.
+    // The old always-nearest pull flipped targets on landings that crossed
+    // the halfway ridge — the visible snap back.
+    // An axis the nearest pull has since accelerated past the threshold
+    // commits to where it was already going (the same face), so later
+    // grounded-edge flickers can never re-audit a topple in flight; the
+    // journey scale in commitOf leaves post-kick outbound spin uncommitted,
+    // and the nearest field brakes it the way a real slab's edge would
+    if(isNaN(b.tgtRx) && (b.wx > R1_COMMIT || b.wx < -R1_COMMIT))
+      b.tgtRx = commitOf(b.rx, b.wx, faceOf(b.rx));
+    if(isNaN(b.tgtRy) && (b.wy > R1_COMMIT || b.wy < -R1_COMMIT))
+      b.tgtRy = commitOf(b.ry, b.wy, flatOf(b.ry));
+    if(b.dwX > 0) b.dwX -= dt;             // a gripped axis holds its pose a
+    else if(isNaN(b.tgtRx)){               // beat before weight may tip it
+      b.wx += R1_FLAT_K * Math.sin(2 * b.rx) * dt;
+      // stood perfectly upright it has nowhere to fall — give it a reason
+      // (committed axes already know their way down and get no nudges)
+      if(Math.cos(2 * b.rx) > .985 && Math.abs(b.wx) < .06)
+        b.wx += (Math.cos(b.rx) >= 0 ? 1 : -1) * R1_FLAT_NUDGE * dt;
+    } else
+      b.wx += 2 * R1_FLAT_K * Math.sin(dAng(b.tgtRx - b.rx)) * dt;
+    if(b.dwY > 0) b.dwY -= dt;
+    else if(isNaN(b.tgtRy)){
+      b.wy += -R1_FLAT_K * Math.sin(2 * b.ry) * dt;
+      if(Math.cos(2 * b.ry) < -.985 && Math.abs(b.wy) < .06)
+        b.wy += (b.ry >= 0 ? -1 : 1) * R1_FLAT_NUDGE * dt;
+    } else
+      b.wy += 2 * R1_FLAT_K * Math.sin(dAng(b.tgtRy - b.ry)) * dt;
+    b.wx = clampW(b.wx); b.wy = clampW(b.wy);   // committed fields honor the
+  }                                             // same top speed the kicks do
 
+  const fx = faceOf(b.rx), dx0 = dAng(b.rx - fx);   // face-relative side, before
+  const fy = flatOf(b.ry), dy0 = dAng(b.ry - fy);
   b.rx = dAng(b.rx + b.wx * dt);
   b.ry = dAng(b.ry + b.wy * dt);
 
-  // it may only rest once it is square to a face and has stopped turning
-  if(grounded && Math.abs(b.wx) < .04 && Math.abs(b.wy) < .04 &&
-     Math.abs(dAng(b.rx - faceOf(b.rx))) < R1_FLAT_EPS &&
-     Math.abs(dAng(b.ry - flatOf(b.ry))) < R1_FLAT_EPS){
-    b.rx = dAng(faceOf(b.rx));           // the last 2° — under the eye's floor
-    b.ry = dAng(flatOf(b.ry));
-    b.wx = 0; b.wy = 0;
-    b.poseCalm = true;                   // sleep may proceed; rAF may stop
-    // the collider takes that exact profile at the end of this same
-    // substep, where the tracker runs for every pose — the old explicit
-    // re-cut here was the rate limiter's exemption, and a hull cut in the
-    // middle of a substep is the one thing the tracker must not do
+  // an axis IN CONTACT that crosses its face has put that face ON the
+  // floor — the slap ends the turn: land exactly there, dead, at any speed,
+  // sliding or not (a skidding slab slaps flat and keeps sliding). Toppling
+  // past flat, overshooting R1_FLAT_EPS and being pulled back was always an
+  // artifact — the shimmy at the end of an otherwise decisive topple; and a
+  // commit whose crossing fell in a fast skid sailed degrees past its own
+  // target and got yanked back. The few degrees the fastest slap forfeits
+  // are under the eye's floor. Airborne crossings tumble on, untouched.
+  if(b.touch){
+    if(dx0 !== 0 && (dAng(b.rx - fx) > 0) !== (dx0 > 0)){
+      b.rx = dAng(fx); b.wx = 0; b.tgtRx = NaN;
+    }
+    if(dy0 !== 0 && (dAng(b.ry - fy) > 0) !== (dy0 > 0)){
+      b.ry = dAng(fy); b.wy = 0; b.tgtRy = NaN;
+    }
+  }
+
+  // each axis may rest the moment IT is square to a face and done turning —
+  // independently: the old both-axes gate let one slow axis hold the other
+  // a fraction off its face, visibly hunting. Both down: the pose is calm.
+  if(grounded){
+    const rxIn = Math.abs(b.wx) < .04 &&
+                 Math.abs(dAng(b.rx - faceOf(b.rx))) < R1_FLAT_EPS;
+    const ryIn = Math.abs(b.wy) < .04 &&
+                 Math.abs(dAng(b.ry - flatOf(b.ry))) < R1_FLAT_EPS;
+    if(rxIn){ b.rx = dAng(faceOf(b.rx)); b.wx = 0; b.tgtRx = NaN; }
+    if(ryIn){ b.ry = dAng(flatOf(b.ry)); b.wy = 0; b.tgtRy = NaN; }
+    if(rxIn && ryIn) b.poseCalm = true;  // sleep may proceed; rAF may stop
+    // (the last 2° per axis land under the eye's floor. The collider takes
+    // the exact profile at the end of this same substep, where the tracker
+    // runs for every pose — the old explicit re-cut here was the rate
+    // limiter's exemption, and a hull cut in the middle of a substep is
+    // the one thing the tracker must not do)
   }
 }
 
@@ -3195,6 +3410,7 @@ function makeRabbitGL(side){
         const bb = bodyByEl.get(el);       // a flat square has no depth: level
         if(bb){                            // the pose, cut the face-on hull it
           bb.rx = bb.ry = bb.wx = bb.wy = 0;   // now has, and stop tumbling
+          bb.tgtRx = bb.tgtRy = NaN;
           bb.poseCalm = true;
           r1TrackHull(bb, 0);
           bb.tumbles = false;
