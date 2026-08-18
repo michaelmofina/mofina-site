@@ -198,7 +198,7 @@ a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent)
 }
 .pill.cta:hover{ color:var(--paper); border-color:var(--accent); filter:brightness(1.08); }
 .pill.cta.copied{ filter:brightness(1.12); }
-.pill.live.held{ cursor:grabbing; color:var(--accent); border-color:var(--accent); }
+.pill.live.held{ cursor:grabbing; color:var(--accent); border-color:var(--accent); z-index:30; }
 
 .row{ display:flex; align-items:center; gap:.9rem; }
 
@@ -230,7 +230,7 @@ a.pill:hover, button.pill:hover{ color:var(--accent); border-color:var(--accent)
   touch-action:none;
   transform-origin:0 0;
 }
-.letter.live.held{ cursor:grabbing; color:var(--accent); }
+.letter.live.held{ cursor:grabbing; color:var(--accent); z-index:30; }
 body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 
 /* the two toys that join the pile — sized in px by the script to
@@ -248,7 +248,11 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   user-select:none;
   -webkit-user-select:none;
 }
-.toy.held{ cursor:grabbing; }
+/* the held body is the thing in your hand: it rides over the caption (z 20)
+   for exactly the hold, then drops back into the resting order. The same
+   z joins .letter.live.held and .pill.live.held above — letters and pills
+   never have captions of their own, but one may still be fading out. */
+.toy.held{ cursor:grabbing; z-index:30; }
 .toy div{ position:absolute; }
 
 /* invisible mirror of the name: always lays out naturally, so home
@@ -283,7 +287,8 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   top:50%;
   transform:translateY(-50%);    /* dead centre — the middle is empty once
                                     the letters have fallen out of it */
-  z-index:20;                    /* over the sprites (8–9), under the dev panel (80) */
+  z-index:20;                    /* over the RESTING sprites (8–9) — a held
+                                    body (30) and the dev panel (80) ride over it */
   padding:0 1.5rem;
   text-align:center;
   font-size:clamp(1rem,1.5vw,1.15rem);
@@ -335,6 +340,39 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
   transition:color .2s ease;
 }
 .corner-link:hover{ color:var(--accent); }
+
+/* ---- mobile corner: one line at rest. At ≤640px the three contacts
+   collapse into a single quiet “Contact” text button on the who-line;
+   tapping it swaps the real items back in (they may wrap to a second
+   line then — chosen, not accidental). A tap anywhere else, or grabbing
+   anything, collapses it again. Desktop never displays the toggle and
+   keeps today’s corner exactly. ---- */
+.reach-toggle{
+  display:none;                    /* only the ≤640px corner ever shows it */
+  font:inherit;
+  font-size:.95rem;
+  color:rgba(var(--ink),.85);
+  font-weight:var(--w-top,500);
+  background:none; border:0; padding:0;
+  cursor:pointer;
+  transition:color .2s ease;
+}
+.reach-toggle:hover{ color:var(--accent); }
+.reach-toggle:focus-visible{ outline:2px solid rgba(var(--ink),.85); outline-offset:3px; border-radius:2px; }
+@media (max-width:640px){
+  .corner{ flex-wrap:nowrap; }               /* a single line at rest… */
+}
+@media (max-width:352px){
+  .corner{ left:1rem; right:1rem; gap:.2rem .75rem; }  /* the who-line + Contact
+                                    need ~273px; give them the extra breathing
+                                    room the 1.5rem insets were spending */
+}
+@media (max-width:640px){
+  .corner.open{ flex-wrap:wrap; }            /* …expanded may take a second */
+  .corner:not(.open) .reach{ display:none; }
+  .corner:not(.open) .reach-toggle{ display:inline-block; }
+  .reach{ flex-wrap:wrap; justify-content:flex-end; row-gap:.4rem; }
+}
 
 
 /* ---- dev weight lab: only exists when the URL says #dev ---- */
@@ -409,7 +447,8 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 <section class="hero">
   <div class="corner fade" style="--d:0ms">
     <p class="who">Product Designer at <a href="https://todoist.com">Todoist</a></p>
-    <nav class="reach" aria-label="Contact">
+    <button class="reach-toggle" id="reachToggle" type="button" aria-expanded="false" aria-controls="reach">Contact</button>
+    <nav class="reach" id="reach" aria-label="Contact">
       <a class="corner-link" href="https://twitter.com/MichaelMofina" rel="me">Twitter</a>
       <a class="corner-link" href="https://www.linkedin.com/in/michaelmofina" rel="me">LinkedIn</a>
       <button class="pill cta" id="contact" type="button" title="Copy to clipboard" aria-label="Copy email address"><span class="lbl a">info@michaelmofina.com</span><span class="lbl b" aria-hidden="true">copied &#10003;</span></button>
@@ -571,6 +610,40 @@ contactEl.addEventListener("click", function(e){
   copyEmail(this);
 });
 
+/* ---- mobile corner: the “Contact” toggle swaps itself for the three
+   contact items (≤640px only — the stylesheet owns the showing and
+   hiding, and desktop never displays the toggle, so nothing changes
+   there). Any pointerdown outside the corner — a stray tap, a grab —
+   collapses it again. Wired before the reduced-motion gate: this is
+   wayfinding, not physics. ---- */
+const cornerEl = document.querySelector(".corner");
+const reachEl  = document.getElementById("reach");
+const reachTgl = document.getElementById("reachToggle");
+if(cornerEl && reachEl && reachTgl){
+  reachTgl.addEventListener("click", () => {
+    cornerEl.classList.add("open");
+    reachTgl.setAttribute("aria-expanded", "true");
+    const first = reachEl.querySelector("a, button");   // the toggle just hid
+    if(first) first.focus();                            // itself; focus follows
+  });
+  const fold = refocus => {
+    const inside = reachEl.contains(document.activeElement);
+    cornerEl.classList.remove("open");
+    reachTgl.setAttribute("aria-expanded", "false");
+    if(refocus && inside) reachTgl.focus();  // focus never strands on a hidden nav
+  };
+  addEventListener("pointerdown", e => {
+    if(!cornerEl.classList.contains("open") || cornerEl.contains(e.target)) return;
+    fold(true);
+  });
+  addEventListener("keydown", e => {         // the keyboard path out, ahead of
+    if(e.key === "Escape" && cornerEl.classList.contains("open")){
+      fold(true);                            // reassembly in the capture below
+      e.stopImmediatePropagation();
+    }
+  }, true);
+}
+
 if(reduced) return;   // the name simply stays a name; no toys, no handlers
 
 /* ================================================================
@@ -595,8 +668,10 @@ function floodOn(spec){
   floodEl.style.background = spec;
   floodEl.classList.add("on");
   document.documentElement.classList.add("flooded");
+  galShow(held);           // EXPERIMENT hook: lift gallery (delete with its block)
 }
 function floodOff(){
+  galHide();               // EXPERIMENT hook: lift gallery (delete with its block)
   if(!floodEl) return;
   floodEl.classList.remove("on");
   document.documentElement.classList.remove("flooded");
@@ -610,6 +685,244 @@ function hideCaption(){
     if(!capEl.classList.contains("on")) capEl.textContent = "";   // so aria-live
   }, 400);                              // holds nothing stale
 }
+
+/* ================================================================
+   EXPERIMENT: lift gallery — while a toy is held, a few stylised
+   placeholder screens fan out around the page: over the flood, under
+   the pile, behind the caption. Each card is drawn ONCE into a canvas
+   at device pixel ratio (in its product’s own idiom, the way the
+   phone’s OLED already is) and cached — showing, swapping and hiding
+   them is pure style flipping, so the physics loop never feels them.
+   They stagger in on the page’s own curve and vanish INSTANTLY with
+   the flood on release. ≤640px shows at most two, smaller. Reduced
+   motion never constructs any of this (the IIFE returned long ago).
+
+   REMOVE by deleting this block and its two hooks — the galShow(held)
+   line in floodOn and the galHide() line in floodOff.
+   REPLACE the drawn cards with real exports here: swap each set’s
+   draw functions for painters that blit a loaded PNG into the same
+   canvas — geometry, stagger and both hooks stay as they are.
+   ================================================================ */
+const GAL_EASE = "cubic-bezier(.22,.61,.36,1)";   // the page’s own curve
+const GAL_INK  = "244,240,232";     // thin light strokes on the r1 cards
+
+function galRR(c, x, y, w, h, r, stroke){
+  const k = Math.min(r, w / 2, h / 2);
+  c.beginPath();
+  c.moveTo(x + k, y);
+  c.arcTo(x + w, y,     x + w, y + h, k);
+  c.arcTo(x + w, y + h, x,     y + h, k);
+  c.arcTo(x,     y + h, x,     y,     k);
+  c.arcTo(x,     y,     x + w, y,     k);
+  c.closePath();
+  if(stroke) c.stroke(); else c.fill();
+}
+
+/* r1 — dark ground like the device’s screen, thin light strokes; no
+   orange anywhere on the cards, so they read on the RAL-orange flood */
+function galR1Stack(c, w, h){        // a simple card stack + its pager dot
+  const cw = w * .58, ch = h * .42, cx = (w - cw) / 2, cy = h * .27;
+  c.lineWidth = 2;
+  c.strokeStyle = "rgba(" + GAL_INK + ",.3)";
+  galRR(c, cx + cw * .07, cy - h * .11, cw * .86, ch, 9, true);
+  c.strokeStyle = "rgba(" + GAL_INK + ",.55)";
+  galRR(c, cx + cw * .035, cy - h * .055, cw * .93, ch, 9, true);
+  c.fillStyle = "#141416";           // the front card occludes the stack
+  galRR(c, cx, cy, cw, ch, 10, false);
+  c.strokeStyle = "rgba(" + GAL_INK + ",.92)";
+  galRR(c, cx, cy, cw, ch, 10, true);
+  const dy = cy + ch + h * .12;
+  for(let i = -1; i <= 1; i++){
+    c.fillStyle = "rgba(" + GAL_INK + "," + (i === 0 ? .92 : .3) + ")";
+    c.beginPath();
+    c.arc(w / 2 + i * w * .05, dy, i === 0 ? 3.2 : 2.4, 0, Math.PI * 2);
+    c.fill();
+  }
+}
+function galR1Dial(c, w, h){         // the big wheel arc + its tick marks
+  const cx = w / 2, cy = h * .58, R = Math.min(w, h) * .33;
+  const a0 = -Math.PI * 1.12, a1 = Math.PI * .12, N = 12, EM = 9;
+  c.lineCap = "round";
+  c.strokeStyle = "rgba(" + GAL_INK + ",.9)";
+  c.lineWidth = 2.5;
+  c.beginPath(); c.arc(cx, cy, R, a0, a1); c.stroke();
+  for(let i = 0; i <= N; i++){
+    const a = a0 + (a1 - a0) * i / N, ca = Math.cos(a), sa = Math.sin(a);
+    const inn = R - (i === EM ? 16 : 9);
+    c.strokeStyle = "rgba(" + GAL_INK + "," + (i === EM ? .95 : .4) + ")";
+    c.lineWidth = i === EM ? 3 : 2;
+    c.beginPath();
+    c.moveTo(cx + ca * inn, cy + sa * inn);
+    c.lineTo(cx + ca * (R - 4), cy + sa * (R - 4));
+    c.stroke();
+  }
+  c.fillStyle = "rgba(" + GAL_INK + ",.9)";
+  c.beginPath(); c.arc(cx, cy, 3.5, 0, Math.PI * 2); c.fill();
+}
+function galR1List(c, w, h){         // a two-line list, one line lit
+  const x = w * .16, bw = w * .68;
+  c.fillStyle = "rgba(" + GAL_INK + ",.16)";
+  galRR(c, x - w * .05, h * .27, bw + w * .1, h * .18, 9, false);
+  c.fillStyle = "rgba(" + GAL_INK + ",.92)";
+  galRR(c, x, h * .325, bw * .58, h * .075, 5, false);
+  c.fillStyle = "rgba(" + GAL_INK + ",.34)";
+  galRR(c, x, h * .58, bw * .82, h * .075, 5, false);
+}
+
+/* Ramble — near-white ground, the OLED’s own vocabulary (the same
+   reds, rings and row bars drawRambleScreen uses; they read on the
+   Ramble gradient flood) */
+function galRamWave(c, w, h){        // the waveform + record motif
+  const BARS = 11, bw = w * .045, gap = w * .031;
+  let x = (w - (BARS * bw + (BARS - 1) * gap)) / 2;
+  const midY = h * .4, tall = h * .21;
+  c.fillStyle = SCR_RED;
+  for(let i = 0; i < BARS; i++){
+    const u = i / (BARS - 1);
+    const env = .28 + .72 * Math.sin(Math.PI * u);
+    const bh = Math.max(bw, tall * env *
+               (.55 + .45 * Math.abs(Math.sin(u * 11.3 + 1.1))));
+    galRR(c, x, midY - bh / 2, bw, bh, bw / 2, false);
+    x += bw + gap;
+  }
+  c.beginPath(); c.arc(w / 2, h * .7, w * .105, 0, Math.PI * 2); c.fill();
+  c.globalAlpha = .3;
+  c.strokeStyle = SCR_RED;
+  c.lineWidth = 3;
+  c.beginPath(); c.arc(w / 2, h * .7, w * .14, 0, Math.PI * 2); c.stroke();
+  c.globalAlpha = 1;
+}
+function galRamTasks(c, w, h){       // the task-list card + check circles
+  c.fillStyle = SCR_TITLE;
+  galRR(c, w * .12, h * .085, w * .5, h * .032, h * .016, false);
+  const RW = [.6, .47, .68, .4];
+  c.lineWidth = 2.5;
+  for(let i = 0; i < RW.length; i++){
+    const y = h * (.185 + i * .105);
+    c.strokeStyle = SCR_RING;
+    c.beginPath();
+    c.arc(w * .165, y + h * .014, w * .045, 0, Math.PI * 2);
+    c.stroke();
+    c.fillStyle = SCR_ROW;
+    galRR(c, w * .27, y, w * RW[i], h * .028, h * .014, false);
+  }
+  c.fillStyle = SCR_RING;
+  galRR(c, w / 2 - w * .13, h * .945, w * .26, h * .009, h * .0045, false);
+}
+
+/* which cards, where — desktop (l,t) and ≤640px (ml,mt) as viewport
+   fractions, each with its own small tilt inside −6°…5°. Grounds are
+   literals (SCR_PAPER lives further down — same value, no TDZ). */
+const GAL_SETS = {
+  r1:     { ground:"#141416", cards:[      // ~1.06:1, landscape-ish
+              { draw:galR1Stack, l:.07, t:.13, ml:.06, mt:.12, rot:-5 },
+              { draw:galR1Dial,  l:.64, t:.18, ml:.52, mt:.60, rot: 4 },
+              { draw:galR1List,  l:.12, t:.62,                 rot:-2 } ] },
+  iphone: { ground:"#fdfdfb", cards:[      // tall, phone-aspect
+              { draw:galRamWave,  l:.09, t:.12, ml:.08, mt:.10, rot:-4 },
+              { draw:galRamTasks, l:.63, t:.56, ml:.56, mt:.60, rot: 3 } ] }
+};
+function galSize(key){               // card box for the current viewport
+  const mob = innerWidth <= 640;
+  if(key === "r1"){
+    const cw = mob ? innerWidth * .3 : Math.min(innerWidth, innerHeight) * .27;
+    return { w:cw, h:cw / 1.06 };
+  }
+  const ch = mob ? innerWidth * .46 : Math.min(innerWidth, innerHeight) * .3;
+  return { w:ch * .48, h:ch };
+}
+
+let galEl = null, galKey = "", galDirty = false;
+const galCards = { r1:[], iphone:[] };
+
+function galBuild(key){
+  const spec = GAL_SETS[key], size = galSize(key);
+  const mob = innerWidth <= 640;
+  const n = Math.min(spec.cards.length, mob ? 2 : spec.cards.length);
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  for(const el of galCards[key]) el.remove();
+  galCards[key].length = 0;
+  for(let i = 0; i < n; i++){
+    const cd = spec.cards[i];
+    const w = Math.round(size.w), h = Math.round(size.h);
+    const cv = document.createElement("canvas");
+    cv.width = Math.max(2, Math.round(w * dpr));
+    cv.height = Math.max(2, Math.round(h * dpr));
+    cv.style.cssText = "position:absolute;display:none;" +
+      "left:" + ((mob && cd.ml != null ? cd.ml : cd.l) * 100).toFixed(1) + "%;" +
+      "top:"  + ((mob && cd.mt != null ? cd.mt : cd.t) * 100).toFixed(1) + "%;" +
+      "width:" + w + "px;height:" + h + "px;" +
+      "border-radius:12px;" +          // the page’s chip-radius language
+      "box-shadow:0 14px 34px rgba(0,0,0,.16),0 3px 9px rgba(0,0,0,.1);" +
+      "opacity:0;transform:rotate(" + cd.rot + "deg) translateY(10px);";
+    const c = cv.getContext("2d");
+    if(c){
+      c.scale(cv.width / w, cv.height / h);
+      c.fillStyle = spec.ground;
+      galRR(c, 0, 0, w, h, 12, false);
+      try{ cd.draw(c, w, h); }catch(err){}
+    }
+    galEl.appendChild(cv);
+    galCards[key].push(cv);
+  }
+}
+function galPresent(key, stagger){
+  for(const k in galCards) if(k !== key)     // a swap clears the other set
+    for(const el of galCards[k]){ el.style.transition = "none"; el.style.display = "none"; }
+  galEl.style.display = "block";
+  const set = galCards[key], spec = GAL_SETS[key];
+  for(let i = 0; i < set.length; i++){
+    const el = set[i], rot = "rotate(" + spec.cards[i].rot + "deg)";
+    el.style.transition = "none";
+    el.style.display = "block";
+    if(stagger){
+      el.style.opacity = "0";
+      el.style.transform = rot + " translateY(10px)";
+      void el.offsetWidth;               // commit the start pose
+      el.style.transition =
+        "opacity .26s "   + GAL_EASE + " " + (i * 80) + "ms," +
+        "transform .26s " + GAL_EASE + " " + (i * 80) + "ms";
+    }
+    el.style.opacity = "1";
+    el.style.transform = rot;
+  }
+  galKey = key;
+}
+function galShow(b){                   // ← hook target: the grab seam (floodOn)
+  const key = b && GAL_SETS[b.ch] ? b.ch : "";
+  if(!key){ galHide(); return; }
+  if(!galEl){
+    galEl = document.createElement("div");
+    galEl.setAttribute("aria-hidden", "true");
+    galEl.style.cssText =              // right after the flood: above it,
+      "position:fixed;inset:0;pointer-events:none;display:none;";  // below the pile
+    floodEl.insertAdjacentElement("afterend", galEl);
+    addEventListener("resize", () => { // self-contained — dies with the block
+      if(!galEl) return;
+      galDirty = true;
+      if(galKey){                      // resized mid-hold: rebuild in place
+        const k = galKey;
+        galDirty = false;
+        galBuild("r1"); galBuild("iphone");
+        galPresent(k, false);
+      }
+    });
+    galBuild("r1"); galBuild("iphone");
+  } else if(galDirty){
+    galDirty = false;
+    galBuild("r1"); galBuild("iphone");
+  }
+  if(key === galKey) return;           // same object re-caught: already up
+  galPresent(key, true);               // a fresh set — or a swap — staggers in
+}
+function galHide(){                    // ← hook target: the release seam (floodOff)
+  if(!galEl || !galKey) return;
+  galKey = "";
+  galEl.style.display = "none";        // gone WITH the flood — instantly
+  for(const k in galCards)
+    for(const el of galCards[k]){ el.style.transition = "none"; el.style.display = "none"; }
+}
+/* ======================= end EXPERIMENT: lift gallery ============== */
 
 /* ================================================================
    Physics — 13 rigid letters (plus two pills and two toys, later)
@@ -1321,8 +1634,9 @@ function onDown(e){
     }
   }
   if(b.kind !== "toy" && mode === "live") b.dropAt = 0;  // a grabbed body falls now
-  held = b;
-  held.el.classList.add("held");
+  if(held && held !== b) held.el.classList.remove("held");  // a second-finger steal:
+  held = b;                                                 // the first body is no
+  held.el.classList.add("held");                            // longer in any hand
   if(b.kind === "toy"){
     showCaption(b.label);                      // objects name themselves…
     floodOn(b.flood);                          // …and bring their world with them
