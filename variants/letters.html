@@ -1080,49 +1080,131 @@ const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const TAP_PX     = 8;      // pointer travel under this…
 const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
 
-/* ---- the shaken window (desktop): window.screenX/Y → a pseudo-force.
-   The window's acceleration across the desktop, read as a three-point
-   second difference of its screen position, low-passed, clamped, and
-   summed into the integrator as −a (per unit mass) beside gravity. ---- */
-const WIN_RING      = 64;      // window-position samples kept — plenty of
-                               // history at any cadence, 240Hz included
-                               // (64 × 4.2ms ≈ 267ms); 1.5KB of Float64, once
-const WIN_VWIN      = .05;     // s — the span the window's velocity is read
-                               // over: long enough to bridge macOS's held
-                               // compositor frames (screenX updates every
-                               // 1–3 frames), short enough that a 6Hz shake's
-                               // half-cycle (83ms) still reads as a reversal
-const WIN_SHK_WIN   = .32;     // s — history scanned for direction reversals
-const WIN_SHK_REV   = 2;       // reversals in that history that make it a
-                               // SHAKE (one is a drag that stopped)
-const WIN_DRAG_GAIN = .12;     // what a mere drag's stutter is allowed to do
-                               // to the pile — a murmur, never a throw
-const WIN_HOLD_MAX  = .06;     // s — a position repeated longer than this is
-                               // a real stop, not a held frame (macOS holds
-                               // 1–3 frames ≈ 17–50ms at 60Hz)
-const WIN_DEAD      = 2;       // px — displacement below this over a span is
-                               // integer quantization, not motion: read as 0
-const ACCEL_LP      = .012;    // s — a light touch on the acceleration — just
-                               // enough to round off the step edges of a
-                               // held-frame cadence, never enough to cancel a
-                               // reversal (a shake is ~3–6Hz; this passes it)
-const WIN_ACC_MAX   = 12 * G;  // px/s² — the most pseudo-force any shake may
-                               // apply (a brisk 4Hz ±120px shake peaks ~18G; a
-                               // monitor switch would read hundreds — bounded
-                               // here, and gated as a teleport below)
-const WIN_WAKE_A    = .6 * G;  // px/s² — window acceleration past which a
-                               // sleeping pile wakes whole. A constant-velocity
-                               // drift reads ~0 and wakes nothing — the tell
-const WIN_REST_V = 2600;       // px/s — a still window cannot reach this in one
-                               // sample by hand: that jump is a hotkey or a snap
-const WIN_TELEPORT_FRAC = .4;  // of the screen — a bigger jump in ONE sample is
-                               // a teleport (display switch, Spaces, restore),
-                               // not a shake: history resets, nothing applied
-const WIN_GAP       = .25;     // s — a sampling gap longer than this is a pause
-                               // (throttled tab, stalled frame): start over
+/* ---- the shaken window (desktop): window.screenX/Y → impulses.
+   WHAT THE PAGE CAN ACTUALLY SEE — measured on a Mac with a probe page
+   during a real title-bar shake: the frame loop and the timers run
+   normally throughout (rAF ~60/s, a 60ms timer ticking on time), but
+   window.screenX/Y update only SPORADICALLY while macOS drags a window.
+   Safari: 41 distinct positions in 20s, gaps up to 1066ms between
+   observed moves. Chrome: 32 positions in 8.5s, gaps to 233ms. Call it
+   2–5 readings a second, irregular — against a hand shaking at 3–6Hz.
+   (CDP-driven moves update screenX every frame, which is why every
+   earlier harness passed while the real thing did next to nothing.)
+   So the window's velocity, its acceleration, its reversals within a
+   window of time are all unreadable here: an estimator that needs
+   several readings inside a fraction of a second is structurally
+   blind. What the page CAN see is a JUMP — the position differs from
+   the last reading by (dx,dy) after a silence of dtObs — and a jump is
+   read as an impulse delivered to the pile, once:
+     Δv = −WIN_K_SHAKE · (dx,dy) · f(dtObs) · g(|dx,dy| ÷ dtObs) · h(dir)
+   f discounts a long silence, g a slow implied speed, h a jump that
+   merely CONTINUES the window's previous displacement (a drag's do, a
+   shake's alternate — at two readings a second a ±100px shake and a
+   careful drag both show ~100px jumps at ~250px/s; direction is the
+   one tell left, and it is read per jump, at any cadence). The product
+   is the kick's strength; a kick under WIN_KICK_MIN is not a kick at
+   all. The same sum of jumps arrives whether a platform reports every
+   frame or three times a second, so the shove per half-swing is
+   cadence-independent by construction. ---- */
+const WIN_K_SHAKE   = 16;      // px/s of velocity change per px of observed
+                               // jump at full strength: an 80px jump is a
+                               // 1280px/s shove, 150px is 2400 — a vigorous
+                               // shake (80–150px jumps, 4–5Hz, seen 3–5×/s)
+                               // throws the pile wall to wall within the
+                               // second. (Per half-swing of a 4Hz shake the
+                               // physically exact figure is 2πf ≈ 25; 16
+                               // reads hard without reading as a slam)
+const WIN_DT_REF    = .5;      // s — a silence up to this is a shake's own
+                               // cadence on the sparsest platform measured
+                               // (Safari: 2–3 readings a second): the jump
+                               // counts in full, f = 1…
+const WIN_DT_P      = 2;       // …and beyond it f = (WIN_DT_REF / dtObs)^p:
+                               // .69 at 600ms, .39 at 800, .25 at 1s, .11 at
+                               // 1.5s. The longer the silence, the less a
+                               // jump says about HOW the window got there —
+                               // but drags are g's and h's to catch; f only
+                               // keeps a lone late reading from landing whole
+const WIN_V_DRAG    = 150;     // px/s — implied speed (jump ÷ silence) at or
+                               // under which the window is being PLACED, not
+                               // shaken: g = 0, inert at ANY cadence (a 200px/s
+                               // drag reads 20px at 100ms and 200px at 1s; the
+                               // ratio is the tell, not the jump)
+const WIN_V_SHAKE   = 650;     // px/s — …and past which it is being THROWN:
+                               // g = 1, linear between. (A 4Hz ±100px shake
+                               // implies 250–1500px/s between sparse readings;
+                               // a careful reposition 100–250)
+const WIN_REV_T     = .15;     // s — the window's displacement over at least
+                               // this long before the previous reading is the
+                               // direction a jump is judged against: at sparse
+                               // cadence that is simply the previous jump; at
+                               // frame cadence it spans the last half-swing, so
+                               // the frames after a reversal read as reversed
+                               // and a steady drag's frames as continuing
+const WIN_RHYTHM_T  = .7;      // s — a reversal within this of the PREVIOUS
+                               // reversal is a shake's rhythm. The first
+                               // reversal of a drag is a reposition and is
+                               // taken at WIN_RHYTHM_1 of strength; the
+                               // second, in time, is the real thing
+const WIN_RHYTHM_1  = .25;
+const WIN_SPARSE_MAX= 1.5;     // how far a sparse observer's kicks are scaled
+                               // up to stand in for the jumps it never saw
+const WIN_H_MIN     = .08;     // what a jump that CONTINUES that direction is
+                               // worth (h): a drag's every jump, and half a
+                               // sparsely-read shake's. A jump that reverses
+                               // it is worth 1, in between linear in the
+                               // cosine; no history is read as continuing,
+                               // under WIN_REV_MIN of it as no evidence (1).
+                               // (.08: a 600px/s drag read every 600ms — a
+                               // 360px jump — lands as a 460px/s murmur)
+const WIN_REV_MIN   = 4;       // px — a displacement under this has no
+                               // direction to speak of: h = 1 (no evidence)
+const WIN_KICK_MAX  = .5 * MAXV;  // px/s — the most velocity one kick may add,
+                               // and the most it may leave a body moving at
+                               // (a 153px jump at full strength; half the
+                               // fling cap): nothing is launched into orbit —
+                               // what the old per-frame force cap meant, per
+                               // impulse now. Measured over 48 sparse shakes:
+                               // at .6 the crushed corner heaps a violent
+                               // throw leaves took >8s to sleep in 29% of
+                               // runs, at .5 in 19%, for a throw 15% shorter
+const WIN_KICK_MIN  = 100;     // px/s — a kick under this slides a letter
+                               // under 3px: not worth waking anyone for — not
+                               // applied, wakes nothing. The qualifying line:
+                               // a slow drag's small, discounted jumps land
+                               // under it at every cadence
+const WIN_SPILL_V   = 500;     // px/s — the kick that spills a SEATED name: a
+                               // shove (a 31px jump at full strength, or any
+                               // reversed ±100 swing), not the murmur a brisk
+                               // reposition after Escape leaves on the toys
+                               // (drags to ~600px/s stay under it at every
+                               // cadence). A sleeping pile wakes to any kick;
+                               // a name at rest takes a real one
+const WIN_DEAD      = 2;       // px — a reading this close to the last one is
+                               // integer quantization, not a move: no change
+const WIN_REST_V    = 2600;    // px/s — from rest (the previous reading did
+                               // not move) no hand reaches this implied speed
+                               // in one jump: a hotkey, a snap — a teleport
+const WIN_TELEPORT_FRAC = .4;  // of the screen — a bigger jump in ONE reading
+                               // is a teleport (display switch, Spaces,
+                               // restore), not a shake: rebase, nothing applied
+const WIN_GAP       = 1.5;     // s — a silence longer than this (the sampler
+                               // stalled, or the window simply sat) has no
+                               // cadence to read: the next reading is a fresh
+                               // baseline, not a jump. (Was .25 when a reading
+                               // was expected every frame; sparse is normal)
+const WIN_RING      = 32;      // readings kept for the direction test — 150ms
+                               // of 120Hz frames is 18; Float64, allocated once
 const WIN_POLL_MS   = 60;      // ms — idle sampler cadence while the pile
-                               // sleeps: two integer reads a tick, no layout,
-                               // no paint, no frame — only there to NOTICE
+                               // sleeps and the window sits: two integer reads
+                               // a tick, no layout, no paint, no frame — only
+                               // there to NOTICE…
+const WIN_POLL_HOT_MS = 16;    // ms — …and its cadence while the window has
+                               // moved within WIN_GAP: a jump's silence is
+                               // measured between polls, and at 60ms a 100ms
+                               // silence reads anywhere from 40 to 160 — a
+                               // careful drag could read as a shove. A frame's
+                               // cadence for the moment it matters, back to
+                               // 60 after WIN_GAP of stillness (still no frame)
 
 /* ---- real hardware, in millimetres — on-screen scale derives from it.
    The r1 keeps the on-screen size it has always had (R1_CAP of the
@@ -1251,9 +1333,6 @@ let spilled = false;
 const target = { x:0, y:0 };
 const samples = [];
 let gravX = 0, gravY = G;   // gravity vector — device tilt may rotate it; |g| stays G
-let winAX = 0, winAY = 0;   // the shaken window's pseudo-force per unit mass
-                            // (px/s²) — the integrator sums it in BESIDE
-                            // gravity; gravX/gravY stay pure for every gate
 
 function seatRect(i){ return seats[i].getBoundingClientRect(); }
 
@@ -1889,207 +1968,245 @@ if(shakeBtn && hasTouch && typeof DeviceOrientationEvent !== "undefined"){
 /* ================================================================
    Shake the window — the desktop's tilt. Drag the browser window
    about the desktop and the pile inside is shaken like the contents
-   of a box: in the window's own (accelerating) frame every free body
-   feels the pseudo-force F = −m·a_window, so a yank left throws the
-   pile right, a brisk shake tosses it wall to wall, and a slow,
-   smooth drift — constant velocity, zero acceleration — leaves a
-   sleeping pile exactly where it was, which is the physically honest
-   tell. Letters, pills and toys alike; the held body too (it swings
-   on its pin — the pin wins).
-   The window's place on the desktop is read off window.screenX/Y
-   (CSS px, integers) into a short ring; the acceleration is a three-
-   velocity reversal over two ≥WIN_VWIN spans (short enough to catch
-   frame-to-frame, so screenX's integer quantization stays far under
-   the wake gate), low-passed by ACCEL_LP, clamped to WIN_ACC_MAX and
-   summed into the integrator as (winAX, winAY) — beside gravity and
-   never inside it: gravX/gravY stay the real down (+ tilt) vector
-   every settle gate reads. Plausibility: a jump past WIN_TELEPORT_FRAC
-   of the screen in one sample, a viewport resize (maximize, snap,
-   restore), a sampling gap past WIN_GAP, and the tab coming back from
-   hidden are teleports, not shakes — the history resets and nothing is
-   applied; the first two readings after a tab return (visible again,
-   or focus regained) are dropped as suspect; and the force itself
-   runs ONE reading late, so a jump the very next reading exposes as a
-   teleport (a browser may hand the renderer the new screenX a frame
-   before the new viewport size) is never felt. Past WIN_WAKE_A the
-   whole pile wakes (wakeAll — the tilt path's own wake) so a settled
-   pile answers a sudden shake; under it sleepers sleep on.
+   of a box: every free body is thrown OPPOSITE to the window's jump
+   (inertia — a yank left throws the pile right), a brisk shake tosses
+   it wall to wall, and a careful drag leaves a sleeping pile exactly
+   where it was. Letters, pills and toys alike; the held body too (it
+   jolts in the hand and the pin wins).
+   The window's place on the desktop is read off window.screenX/Y (CSS
+   px, integers) — and, on macOS, it is read SPARSELY: the position
+   updates only a few times a second during a live drag (see the
+   tunables above for the measured numbers), so the sensor keeps no
+   velocity and no acceleration — only the last observed position, when
+   it was first seen there, and a short ring of the readings that moved.
+   Every reading that differs is a jump (dx,dy) across a silence dtObs,
+   and a jump is an impulse: one Δv = −WIN_K_SHAKE·(dx,dy)·f·g·h stepped
+   into every free body's velocity ONCE (winKick), capped per kick at
+   WIN_KICK_MAX, dropped under WIN_KICK_MIN. f, g and h are the
+   judgment — silence, implied speed, direction against the window's
+   previous displacement: a 100px jump that reverses the last one is a
+   shove whether it arrives 100 or 500ms later; 24px every 120ms, or
+   200px every second, is a careful 200px/s drag and is nothing at any
+   cadence; a brisk drag's jumps continue one another and land as a
+   murmur. Gravity stays pure: gravX/gravY are the real down (+ tilt)
+   vector every settle gate reads, and the integrator never sees the
+   window at all.
+   Plausibility: a jump past WIN_TELEPORT_FRAC of the screen, a from-
+   rest jump faster than WIN_REST_V, a viewport resize (maximize, snap,
+   restore), a sampler silence past WIN_GAP, and the tab coming back
+   from hidden are teleports, not shakes — the baseline resets and
+   nothing is applied; the first two readings after a tab return
+   (visible again, or focus regained) are dropped as suspect; and a
+   kick lands ONE reading late, so a jump the very next reading exposes
+   as a teleport (a browser may hand the renderer the new screenX a
+   frame before the new viewport size) is never felt. A landing kick
+   wakes the whole pile (wakeAll — the tilt path's own wake) and, past
+   WIN_SPILL_V, spills a seated name: the window is the first way to
+   play. A slow drag's sparse, long-silence readings wake nothing.
    Battery: nothing here keeps rAF alive. While the loop runs, step()
-   samples for free; while everything sleeps an idle setInterval at
-   WIN_POLL_MS reads two integers — no layout, no paint, no frame —
-   purely to NOTICE a shake and hand off to start(), and it is torn
-   down whenever the document is hidden. Desktop only: a fine pointer
-   that hovers (phones and tablets have tilt, and their screenX is a
-   constant anyway); capability is confirmed lazily, the first time
-   screenX is actually seen to change. Reduced motion never reaches
-   this code — the IIFE returned long ago.
+   samples for free; while everything sleeps an idle setInterval reads
+   two integers — no layout, no paint, no frame — purely to NOTICE a
+   shake and hand off to start(): every WIN_POLL_MS while the window
+   sits, every WIN_POLL_HOT_MS for the WIN_GAP after it last moved (a
+   jump's silence is timed between polls, and the judgment hangs on
+   that timing), and it is torn down whenever the document is hidden.
+   Desktop only: a fine pointer that hovers (phones and tablets have
+   tilt, and their screenX is a constant anyway). Reduced motion never
+   reaches this code — the IIFE returned long ago.
    ================================================================ */
 const winMQ  = matchMedia("(hover: hover) and (pointer: fine)");
 let winOn    = winMQ.matches && Number.isFinite(window.screenX);   // explicit: NaN is not a position
-let winLastMoved = false;        // did the previous reading move? (from-rest gate)
-let winCap   = false;              // screenX has actually been seen to change
+let winHas   = false;              // a baseline reading exists
+let winX     = 0, winY = 0;        // the last observed position…
+let winTC    = 0;                  // …and when it was first seen there (ms):
+                                   // the silence the next jump is measured over
+let winTS    = 0;                  // when the sampler last ran (stall detection)
+let winLastMoved = false;
+let winRevT = -1e9;                // time of the last direction reversal          // did the previous reading move? (from-rest gate)
 let winSkip  = 0;                  // readings still to drop after a tab return
-let winPX    = 0, winPY = 0;       // the force THIS reading measured — applied
+let winPX    = 0, winPY = 0;       // the kick THIS reading measured — applied
                                    // next reading, once that one has vouched
                                    // this was no teleport
-let winLpX   = 0, winLpY = 0;      // low-passed window acceleration, px/s²
+let winLastK = 0;                  // |Δv| of the kick that last landed (px/s)
 let winLW    = 0, winLH = 0;       // viewport size at the last sample
-let winTimer = 0;                  // the idle sampler
+let winTimer = 0, winRate = 0;     // the idle sampler and its current cadence
 const winRX = new Float64Array(WIN_RING), winRY = new Float64Array(WIN_RING),
-      winRT = new Float64Array(WIN_RING);   // the ring: x, y, t (ms)
-let winRN = 0, winRH = 0;          // …its fill and its newest slot
+      winRT = new Float64Array(WIN_RING);   // the readings that moved: x, y, t
+let winRN = 0, winRH = 0;          // …their count and the newest slot
 
-function winClear(){
-  winRN = 0; winLpX = 0; winLpY = 0;
-  winPX = 0; winPY = 0; winAX = 0; winAY = 0;
-  winLastMoved = false;
+function winClear(){               // forget the baseline, the history and the pending kick
+  winHas = false; winRN = 0; winPX = 0; winPY = 0; winLastMoved = false;
+  winRevT = -1e9;
+}
+function winPush(t, x, y){         // a reading that moved (or a fresh baseline) joins the history
+  winRH = (winRH + 1) % WIN_RING;
+  winRX[winRH] = x; winRY[winRH] = y; winRT[winRH] = t;
+  if(winRN < WIN_RING) winRN++;
 }
 
-/* one reading of the window's place on the screen → this frame's winAX,
-   winAY. Returns true while the acceleration is a real shake (past
-   WIN_WAKE_A); the caller decides who wakes. Allocates nothing. */
+/* one reading of the window's place on the screen. Lands the kick the
+   previous reading measured (this one vouches it was no teleport),
+   reads this reading's jump into the next kick, and returns true when a
+   kick landed — the pile is then awake and moving; the caller decides
+   about a seated name. Allocates nothing. */
 function winSample(now){
   if(!winOn) return false;
   const x = window.screenX, y = window.screenY;
   if(!Number.isFinite(x) || !Number.isFinite(y)){   // not a position — drop it
-    winClear(); winAX = 0; winAY = 0; winPX = 0; winPY = 0;
+    winClear();
     return false;
   }
-  const W = innerWidth, H = innerHeight;
   if(winSkip > 0){                 // a reading we were told not to trust: drop
-    winSkip--;                     // it, apply nothing (history stays — a size
-    winPX = 0; winPY = 0; winAX = 0; winAY = 0;   // change meanwhile is still
-    return false;                  // caught against the last trusted one)
+    winSkip--;                     // it, apply nothing (the baseline stays — a
+    winPX = 0; winPY = 0;          // size change meanwhile is still caught
+    return false;                  // against the last trusted one)
   }
-  if(winRN > 0){
-    const pt = winRT[winRH];
-    if(now <= pt) return false;    // the clock must advance between samples
-    const dx = x - winRX[winRH], dy = y - winRY[winRH];
-    const adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
-    if(adx > 0 || ady > 0) winCap = true;          // it moves: capable
-    // from rest (the previous reading did not move) to a speed no hand
-    // reaches in one sample: a hotkey, a snap, a window dragged back into
-    // view — a teleport, never a shake
-    const dtS = (now - pt) / 1000;
-    const fromRest = winRN < 2 || winLastMoved === false;
-    const vS = dtS > 0 ? Math.hypot(adx, ady) / dtS : 0;
-    winLastMoved = adx > 0 || ady > 0;
-    if(now - pt > WIN_GAP * 1000 || W !== winLW || H !== winLH ||
-       adx > WIN_TELEPORT_FRAC * (screen.width || 1e9) ||
-       ady > WIN_TELEPORT_FRAC * (screen.height || 1e9) ||
-       (fromRest && vS > WIN_REST_V))
-      winClear();                  // a teleport, a resize, a pause: not a shake
-  }
+  if(winHas && now <= winTS) return false;   // the clock must advance between readings
+  const W = innerWidth, H = innerHeight;
+  const tS = winTS;
+  winTS = now;
+  if(winHas && (W !== winLW || H !== winLH || now - tS > WIN_GAP * 1000))
+    winClear();                    // a resize, a stalled sampler: a teleport
+                                   // could hide in either — rebase, and the
+                                   // pending kick goes with it
   winLW = W; winLH = H;
-  // a held compositor frame repeats the last position — it carries no
-  // information and would read as a stop-then-lurch. Record only real
-  // moves (the force persists unchanged across a hold, below).
-  if(winRN > 0 && x === winRX[winRH] && y === winRY[winRH]){
-    if(now - winRT[winRH] > WIN_HOLD_MAX * 1000){   // a genuine stop: record it
-      winRH = (winRH + 1) % WIN_RING;
-      winRX[winRH] = x; winRY[winRH] = y; winRT[winRH] = now;
-      if(winRN < WIN_RING) winRN++;
-    } else return false;           // a hold: keep last frame's force
-  } else {
-    winRH = (winRH + 1) % WIN_RING;
-    winRX[winRH] = x; winRY[winRH] = y; winRT[winRH] = now;
-    if(winRN < WIN_RING) winRN++;
+  if(!winHas){                     // first reading (or first after a reset):
+    winHas = true;                 // the baseline, nothing to compare against
+    winX = x; winY = y; winTC = now;
+    winPush(now, x, y);
+    return false;
   }
-  if(!winCap || winRN < 3) return false;
-  // velocity now: displacement over the newest ≥WIN_VWIN span; velocity a
-  // span ago: the same read one span back. Acceleration is their change
-  // over the time between them. A shake is a sharp velocity REVERSAL
-  // every half-cycle — a large displacement swing that integer
-  // quantization cannot hide — so this reads it at full strength where
-  // a long second-difference stencil averaged it toward zero.
-  const span = WIN_VWIN * 1000;
-  let i1 = -1, i2 = -1;
-  for(let k = 1; k < winRN; k++){
-    const i = (winRH - k + WIN_RING) % WIN_RING, tk = winRT[i];
-    if(i1 < 0){ if(now - tk >= span) i1 = i; }
-    else if(winRT[i1] - tk >= span){ i2 = i; break; }
+  const dx = x - winX, dy = y - winY;
+  const adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+  const moved = adx >= WIN_DEAD || ady >= WIN_DEAD;
+  const kx = winPX, ky = winPY;    // the last reading's kick — vouched for
+  winPX = 0; winPY = 0;            // below unless THIS reading is a teleport
+  if(moved){
+    const dtObs = (now - winTC) / 1000;              // the silence this jump crossed
+    const J = Math.hypot(adx, ady), v = J / dtObs;   // its size and implied speed, px/s
+    // a jump no hand makes in one reading — a display switch, Spaces, a
+    // hotkey, a snap, a window dragged back into view: a teleport, never a
+    // shake. Rebase; apply nothing, not even the last reading's kick
+    if(adx > WIN_TELEPORT_FRAC * (screen.width || 1e9) ||
+       ady > WIN_TELEPORT_FRAC * (screen.height || 1e9) ||
+       (!winLastMoved && v > WIN_REST_V)){
+      winClear();
+      winHas = true; winX = x; winY = y; winTC = now;
+      winPush(now, x, y);
+      return false;
+    }
+    if(dtObs <= WIN_GAP){          // (a silence past WIN_GAP: fresh baseline,
+      // the kick: the jump, discounted for a long silence (f), for a slow
+      // implied speed (g) and for continuing the window's previous
+      // displacement (h); opposite to the jump; capped; dropped if it
+      // would not move a letter
+      const f = dtObs <= WIN_DT_REF ? 1 : Math.pow(WIN_DT_REF / dtObs, WIN_DT_P);
+      const g = Math.min(1, Math.max(0, (v - WIN_V_DRAG) / (WIN_V_SHAKE - WIN_V_DRAG)));
+      let h = WIN_H_MIN;           // no history: read as continuing
+      for(let k = 1; k < winRN; k++){   // the displacement over ≥ WIN_REV_T
+        const i = (winRH - k + WIN_RING) % WIN_RING;   // before the last reading
+        if(winRT[i] > winTC - WIN_REV_T * 1000) continue;
+        const rx = winX - winRX[i], ry = winY - winRY[i];
+        const rm = Math.hypot(rx, ry);
+        if(rm >= WIN_REV_MIN){     // 1: this jump reversed it, −1: continued it
+          const r = -(dx * rx + dy * ry) / (J * rm);
+          h = WIN_H_MIN + (1 - WIN_H_MIN) * (r + 1) * .5;
+          if(r > .3){              // a reversal — is it the rhythm of a shake,
+            const sinceRev = (now - winRevT) / 1000;   // or a drag turning back?
+            winRevT = now;
+            // the rhythm window scales with how sparsely the platform lets
+            // us see the window: Safari shows ~2–3 positions a second, so
+            // two reversals three readings apart are still one shake
+            const rhythmT = Math.max(WIN_RHYTHM_T, 3.2 * dtObs);
+            if(sinceRev > rhythmT && v < WIN_V_SHAKE) h *= WIN_RHYTHM_1;
+          }
+        } else h = 1;              // it had no direction to speak of
+        break;
+      }
+      // a sparse observer sees fewer of a shake's jumps — each one it does
+      // see stands for more motion. Scale the kick up toward the dense
+      // world's per-second total so Safari's 2–3 readings/s throw the pile
+      // the way Chrome's 5 do: sparse = observed silence over WIN_DT_REF/2
+      const sparse = Math.min(WIN_SPARSE_MAX, Math.max(1, dtObs / (WIN_DT_REF * .5)));
+      const st = f * g * h * sparse;
+      if(st > 0){
+        let px = -WIN_K_SHAKE * dx * st, py = -WIN_K_SHAKE * dy * st;
+        let m = Math.hypot(px, py);
+        if(m > WIN_KICK_MAX){ const c = WIN_KICK_MAX / m; px *= c; py *= c; m = WIN_KICK_MAX; }
+        if(m >= WIN_KICK_MIN){ winPX = px; winPY = py; }
+      }
+    }                              // no kick — but the last one still lands)
+    winX = x; winY = y; winTC = now;
+    winPush(now, x, y);
   }
-  if(i2 < 0) return false;         // not enough history yet
-  const t1 = winRT[i1], t2 = winRT[i2];
-  const d01 = (now - t1) / 1000, d12 = (t1 - t2) / 1000;
-  let dx1 = x - winRX[i1], dy1 = y - winRY[i1];     // newest span
-  let dx2 = winRX[i1] - winRX[i2], dy2 = winRY[i1] - winRY[i2];   // the one before
-  if(Math.abs(dx1) < WIN_DEAD) dx1 = 0;  if(Math.abs(dy1) < WIN_DEAD) dy1 = 0;
-  if(Math.abs(dx2) < WIN_DEAD) dx2 = 0;  if(Math.abs(dy2) < WIN_DEAD) dy2 = 0;
-  const vx1 = dx1 / d01, vy1 = dy1 / d01, vx2 = dx2 / d12, vy2 = dy2 / d12;
-  const dm = (d01 + d12) / 2;
-  let ax = (vx1 - vx2) / dm, ay = (vy1 - vy2) / dm;
-  // is the window being SHAKEN or merely dragged? Count direction
-  // reversals across the last WIN_SHK_WIN of history: a drag — fast,
-  // slow, stuttering — reverses zero times; a shake reverses several.
-  // The pile feels a drag's stutter at WIN_DRAG_GAIN (a murmur) and a
-  // shake at full strength.
-  const rev = winReversals(now);
-  const gain = rev >= WIN_SHK_REV ? 1 : WIN_DRAG_GAIN;
-  ax *= gain; ay *= gain;
-  // low-pass, cadence-honest (display rate inside step(), WIN_POLL_MS idle)
-  const pdt = (now - winRT[(winRH - 1 + WIN_RING) % WIN_RING]) / 1000;
-  const k = 1 - Math.exp(-pdt / ACCEL_LP);
-  winLpX += (ax - winLpX) * k;
-  winLpY += (ay - winLpY) * k;
-  let am = Math.hypot(winLpX, winLpY);
-  if(am > WIN_ACC_MAX){            // a bounded shove, never a launch into orbit
-    const s = WIN_ACC_MAX / am;
-    winLpX *= s; winLpY *= s; am = WIN_ACC_MAX;
-  }
-  winAX = winPX; winAY = winPY;        // last reading's force is this frame's…
-  winPX = -winLpX; winPY = -winLpY;    // …this reading's waits for the next to
-  // wake on a real shake (reversals are its signature) at any amplitude
-  // that reads at all, or on a single shove past the acceleration gate
-  return (rev >= WIN_SHK_REV && am > WIN_WAKE_A * .15) || am > WIN_WAKE_A;
+  winLastMoved = moved;
+  if(kx === 0 && ky === 0) return false;
+  winKick(kx, ky, now);
+  return true;
 }
-/* direction reversals of the window over the recent history — the
-   signature of a shake. Reads the ring on both axes, zero allocation. */
-function winReversals(now){
-  let rev = 0, pdx = 0, pdy = 0, px = winRX[winRH], py = winRY[winRH];
-  for(let k = 1; k < winRN; k++){
-    const i = (winRH - k + WIN_RING) % WIN_RING;
-    if(now - winRT[i] > WIN_SHK_WIN * 1000) break;
-    const dx = px - winRX[i], dy = py - winRY[i];   // motion over this step
-    if(Math.abs(dx) >= WIN_DEAD){ if(pdx && dx * pdx < 0) rev++; pdx = dx; }
-    if(Math.abs(dy) >= WIN_DEAD){ if(pdy && dy * pdy < 0) rev++; pdy = dy; }
-    px = winRX[i]; py = winRY[i];
+/* a kick lands: every sleeper wakes (the whole pile, islands and all —
+   the tilt path's own wake), then every body in play takes the same
+   velocity step at once — the held body too: it jolts in the hand and
+   the pin takes it back. Bodies not yet in play (a seated name, letters
+   still waiting their turn in a spill) are left alone. Allocates nothing. */
+function winKick(dvx, dvy, now){
+  winLastK = Math.hypot(dvx, dvy);
+  for(const b of bodies) if(b.sleeping){ wakeAll(); break; }
+  for(const b of bodies){
+    if(!simActive(b, now)) continue;
+    const v0 = Math.hypot(b.vx, b.vy);
+    b.vx += dvx; b.vy += dvy;
+    // kicks stack (a second one lands before the pile has slowed), so the
+    // SPEED a kick may leave a body at is bounded too — at the cap, or
+    // at whatever it already had: a kick never launches, never brakes
+    const v1 = Math.hypot(b.vx, b.vy);
+    const lim = v0 > WIN_KICK_MAX ? v0 : WIN_KICK_MAX;
+    if(v1 > lim){ b.vx *= lim / v1; b.vy *= lim / v1; }
   }
-  return rev;
 }
-/* a real shake reaches a sleeping pile: wake it whole. (An awake pile
-   under a sustained shake is left to its own clocks — nothing stills
-   inside a shake anyway.) */
+/* a kick has landed (the pile is awake and moving — winKick saw to it):
+   the loop must be running, and a seated name spills if the kick was a
+   real shove (WIN_SPILL_V) — the window being the first way to play; a
+   reposition's shuffle only stirs the toys under it. Called from the
+   idle sampler and from inside step() alike — there start() (goLive's
+   included) finds the frame already owned and does nothing. */
 function winShaken(){
-  for(const b of bodies) if(b.sleeping){ wakeAll(); return; }
+  if(mode === "seated" && winLastK >= WIN_SPILL_V){ clearTimeout(fallTimer); goLive(); }
+  else start();
 }
-/* the idle sampler: armed from the first spill, it does nothing while
-   the loop is up (step() samples then) and only ever hands off to start() */
+/* the idle sampler: armed from load, it does nothing while the loop is up
+   (step() samples then) and only ever hands off through winShaken — or,
+   the reading it just took having measured a kick, to start(): the next
+   frame lands it (or vetoes it and stops again), a frame away rather
+   than a poll away. Its cadence follows the window: a frame's while the
+   window has moved within WIN_GAP, a poll's while it sits (winArm). */
 function winIdle(){
   if(raf || document.hidden) return;
-  if(winSample(performance.now())){
-    if(mode === "seated"){           // the name is whole: a shake spills it —
-      clearTimeout(fallTimer);       // the window is the first way to play
-      goLive();
-    } else { wakeAll(); start(); }
-  }
+  if(winSample(performance.now())) winShaken();
+  else if(winPX !== 0 || winPY !== 0) start();
+  winArm();
 }
 function winArm(){
-  if(!winOn || winTimer || document.hidden) return;
-  winTimer = setInterval(winIdle, WIN_POLL_MS);
+  if(!winOn || document.hidden) return;
+  const rate = winHas && performance.now() - winTC < WIN_GAP * 1000
+             ? WIN_POLL_HOT_MS : WIN_POLL_MS;
+  if(winTimer && winRate === rate) return;
+  if(winTimer) clearInterval(winTimer);
+  winTimer = setInterval(winIdle, rate);
+  winRate = rate;
 }
 function winDisarm(){
-  if(winTimer){ clearInterval(winTimer); winTimer = 0; }
+  if(winTimer){ clearInterval(winTimer); winTimer = 0; winRate = 0; }
 }
 document.addEventListener("visibilitychange", () => {
   if(document.hidden){ winDisarm(); winClear(); return; }
   winClear(); winSkip = 2;         // back from hidden: the window may have been
   winArm();                        // anywhere meanwhile — the first two readings
-});                                // are suspect and the history is worthless
+});                                // are suspect and the baseline is worthless
 winArm();                          // armed from load: a shaken window can spill
                                    // a seated name, not only stir a fallen one
 addEventListener("focus", () => { winSkip = 2; });   // focus regained: the first
-                                   // two readings are suspect (the history is
+                                   // two readings are suspect (the baseline is
                                    // not — a blurred window is still sampled)
 if(winMQ.addEventListener)         // a mouse plugged in, a laptop folded flat
   winMQ.addEventListener("change", e => {
@@ -2850,14 +2967,16 @@ function supportAudit(W, H){
 }
 
 function step(t){
-  raf = 0;
+  raf = -1;                      // owned for the duration: a start() from
+                                 // inside the frame (a shake spilling a seated
+                                 // name) must not schedule a second one
   const dtF = Math.min(Math.max((t - lastT) / 1000, .0005), 1 / 30);
   lastT = t;
   const W = innerWidth, H = innerHeight;
 
   // where is the window on the desktop? (desktop only — see the shaken-
-  // window block.) One read per display frame, shared by every substep;
-  // a real shake reaches the sleepers
+  // window block.) One reading per display frame; a landing kick has
+  // already woken and shoved the pile — a seated name spills
   if(winSample(t)) winShaken();
 
   gPerpX = -gravY / G; gPerpY = gravX / G;   // across-gravity unit axis
@@ -2891,8 +3010,8 @@ function subStep(dt, t, W, H, first){
     b.iM = b.sleeping ? 0 : (b === held ? b.invM / HOLD_MASS : b.invM);
     b.iI = b.sleeping ? 0 : (b === held ? b.invI / HOLD_MASS : b.invI);
     if(!b.sim || b.sleeping) continue;
-    b.vx += (gravX + winAX) * dt;   // gravity + the shaken window (the held
-    b.vy += (gravY + winAY) * dt;   // body feels both; its pin wins)
+    b.vx += gravX * dt;             // gravity (the shaken window arrives as
+    b.vy += gravY * dt;             // one-shot kicks — winKick — not a force)
     const dmp = 1 - LIN_DAMP * dt;
     b.vx *= dmp; b.vy *= dmp;
     b.va *= 1 - ANG_DAMP * dt;
@@ -3298,7 +3417,7 @@ function finishStep(dt, t, W, H){
 
   const busy = held || mode === "homing" || anyAwake || anyWaiting ||
                any3DBusy();            // a 3D toy's pose may still be settling
-  if(busy) raf = requestAnimationFrame(step);
+  raf = busy ? requestAnimationFrame(step) : 0;
 }
 
 function render(t){
