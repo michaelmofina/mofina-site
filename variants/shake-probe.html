@@ -1,0 +1,20 @@
+<!doctype html><meta charset="utf-8"><title>shake probe</title>
+<style>body{font:14px/1.5 -apple-system,sans-serif;padding:24px;color:#161616;background:#fdfdfb}pre{font:12px ui-monospace,monospace;white-space:pre-wrap;background:#f0efe9;padding:12px;border-radius:8px}b{color:#c2410c}</style>
+<h2>Window-move probe</h2>
+<p>Drag this window by its title bar and <b>shake it</b> for ~2 seconds, then let go. The log shows what the page could actually observe. Copy it to me.</p>
+<pre id="o">waiting…</pre>
+<script>
+const o=document.getElementById('o');
+let frames=0,timers=0,lastSX=screenX,moves=0,gaps=[],lastMoveT=0,biggestGap=0,rafGaps=[],lastRaf=performance.now();
+const t0=performance.now();
+const log=()=>{o.textContent=
+`elapsed ${((performance.now()-t0)/1000).toFixed(1)}s
+rAF frames: ${frames}   (worst rAF gap: ${Math.round(Math.max(0,...rafGaps))}ms)
+60ms timer ticks: ${timers}
+screenX distinct changes observed: ${moves}
+worst gap between observed moves: ${Math.round(biggestGap)}ms
+current screenX: ${screenX}`;};
+function seen(){const sx=screenX;const now=performance.now();if(sx!==lastSX){if(lastMoveT){const g=now-lastMoveT;gaps.push(g);if(g>biggestGap)biggestGap=g;}lastMoveT=now;lastSX=sx;moves++;}}
+(function raf(){const now=performance.now();rafGaps.push(now-lastRaf);lastRaf=now;frames++;seen();log();requestAnimationFrame(raf);})();
+setInterval(()=>{timers++;seen();},60);
+</script>
