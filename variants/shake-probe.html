@@ -1,0 +1,29 @@
+<!doctype html><meta charset="utf-8"><title>probe 2</title>
+<style>body{font:14px/1.5 -apple-system,sans-serif;padding:24px;color:#161616;background:#fdfdfb}pre{font:12px ui-monospace,monospace;white-space:pre-wrap;background:#f0efe9;padding:12px;border-radius:8px}b{color:#c2410c}</style>
+<h2>Window-move probe 2</h2>
+<p>Shake this window by its title bar for ~3s, let go, copy the log. This one times <b>every</b> candidate sensor.</p>
+<pre id="o">waiting…</pre>
+<script>
+const o=document.getElementById('o');
+const S={sx:{v:screenX,n:0,t:0,gaps:[]}, sl:{v:screenLeft,n:0,t:0,gaps:[]}, ox:{v:window.outerWidth+'x'+window.outerHeight,n:0}, mm:{n:0,t:0,gaps:[]}};
+let frames=0,t0=performance.now(),visChanges=0,resizes=0,blurs=0;
+function tick(key,val){const s=S[key];if(val!==s.v){const now=performance.now();if(s.t){s.gaps.push(now-s.t);}s.t=now;s.v=val;s.n++;}}
+// candidate 1: screenX via rAF (what we use)
+(function raf(){frames++;tick('sx',screenX);tick('sl',screenLeft);tick('ox',outerWidth+'x'+outerHeight);requestAnimationFrame(raf);log();})();
+// candidate 2: mousemove while dragging (does the page get any?)
+addEventListener('mousemove',e=>{const now=performance.now();if(S.mm.t)S.mm.gaps.push(now-S.mm.t);S.mm.t=now;S.mm.n++;});
+// candidate 3: other events during a drag
+addEventListener('resize',()=>resizes++);addEventListener('blur',()=>blurs++);document.addEventListener('visibilitychange',()=>visChanges++);
+// candidate 4: does a MessageChannel / microtask loop see screenX change faster than rAF?
+let mcReads=0,mcChanges=0,mcLast=screenX;const ch=new MessageChannel();ch.port1.onmessage=()=>{mcReads++;if(screenX!==mcLast){mcChanges++;mcLast=screenX;}ch.port2.postMessage(0);};ch.port2.postMessage(0);
+// candidate 5: screen.isExtended / getScreenDetails presence
+const hasGSD=typeof window.getScreenDetails==='function';
+function log(){const el=(performance.now()-t0)/1000;const med=a=>{if(!a.length)return '-';const b=[...a].sort((x,y)=>x-y);return Math.round(b[b.length>>1]);};const mx=a=>a.length?Math.round(Math.max(...a)):'-';
+o.textContent=`elapsed ${el.toFixed(1)}s   rAF ${frames}   (${(frames/el).toFixed(0)}/s)
+screenX changes: ${S.sx.n}  median gap ${med(S.sx.gaps)}ms  worst ${mx(S.sx.gaps)}ms
+screenLeft changes: ${S.sl.n}
+outerSize changes: ${S.ox.n}   resize events: ${resizes}   blur: ${blurs}   vis: ${visChanges}
+mousemove events received: ${S.mm.n}  median gap ${med(S.mm.gaps)}ms
+microtask-loop reads: ${mcReads}  screenX changes seen there: ${mcChanges}
+getScreenDetails: ${hasGSD}   UA: ${navigator.userAgent.includes('Safari')&&!navigator.userAgent.includes('Chrome')?'Safari':'Chrome/other'}`;}
+</script>
