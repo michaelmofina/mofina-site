@@ -2067,10 +2067,15 @@ function winShaken(){
    the loop is up (step() samples then) and only ever hands off to start() */
 function winIdle(){
   if(raf || document.hidden) return;
-  if(winSample(performance.now())){ wakeAll(); start(); }
+  if(winSample(performance.now())){
+    if(mode === "seated"){           // the name is whole: a shake spills it —
+      clearTimeout(fallTimer);       // the window is the first way to play
+      goLive();
+    } else { wakeAll(); start(); }
+  }
 }
 function winArm(){
-  if(!winOn || !spilled || winTimer || document.hidden) return;
+  if(!winOn || winTimer || document.hidden) return;
   winTimer = setInterval(winIdle, WIN_POLL_MS);
 }
 function winDisarm(){
@@ -2081,6 +2086,8 @@ document.addEventListener("visibilitychange", () => {
   winClear(); winSkip = 2;         // back from hidden: the window may have been
   winArm();                        // anywhere meanwhile — the first two readings
 });                                // are suspect and the history is worthless
+winArm();                          // armed from load: a shaken window can spill
+                                   // a seated name, not only stir a fallen one
 addEventListener("focus", () => { winSkip = 2; });   // focus regained: the first
                                    // two readings are suspect (the history is
                                    // not — a blurred window is still sampled)
