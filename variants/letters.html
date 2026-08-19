@@ -19,7 +19,8 @@
    put. A rabbit r1 drops in after the first
    spill, an iPhone follows a beat later, and neither ever leaves.
    One viewport, no scroll. Escape or double-click puts the name
-   (and the pills) back together.
+   (and the pills) back together. On a desktop the browser window is
+   a box: drag it about and the pile inside is shaken with it.
    ============================================================ */
 
 @font-face{
@@ -1079,6 +1080,47 @@ const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const TAP_PX     = 8;      // pointer travel under this…
 const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
 
+/* ---- the shaken window (desktop): window.screenX/Y → a pseudo-force.
+   The window's acceleration across the desktop, read as a three-point
+   second difference of its screen position, low-passed, clamped, and
+   summed into the integrator as −a (per unit mass) beside gravity. ---- */
+const WIN_RING      = 64;      // window-position samples kept — two stencils
+                               // of history at any cadence, 240Hz included
+                               // (64 × 4.2ms ≈ 267ms); 1.5KB of Float64, once
+const WIN_STENCIL   = .1;      // s — least spacing between the three samples
+                               // the acceleration is differenced over (six
+                               // frames at 60Hz, two polls when idle). screenX
+                               // is an INTEGER and updates at compositor
+                               // cadence: a held frame then a double step at
+                               // a 600px/s drag is a 10px kink — over a one-
+                               // frame stencil that reads as 17G of pure
+                               // noise, over this one ~0.5G raw (then the
+                               // low-pass) against a 0.6G wake gate. A 4Hz
+                               // shake still comes through at ~0.57 of its
+                               // true peak, a 2Hz one at ~0.9; the estimate
+                               // sits ~100ms behind the window, which at
+                               // shake frequencies no eye can tell
+const ACCEL_LP      = .025;    // s — low-pass time constant on the measured
+                               // acceleration: halves a one-sample kink at
+                               // display rate, near-transparent when idle
+const WIN_ACC_MAX   = 12 * G;  // px/s² — the most pseudo-force any shake may
+                               // apply (a brisk 4Hz ±120px shake peaks ~18G; a
+                               // monitor switch would read hundreds — bounded
+                               // here, and gated as a teleport below)
+const WIN_WAKE_A    = .6 * G;  // px/s² — window acceleration past which a
+                               // sleeping pile wakes whole. A constant-velocity
+                               // drift reads ~0 and wakes nothing — the tell
+const WIN_REST_V = 2600;       // px/s — a still window cannot reach this in one
+                               // sample by hand: that jump is a hotkey or a snap
+const WIN_TELEPORT_FRAC = .4;  // of the screen — a bigger jump in ONE sample is
+                               // a teleport (display switch, Spaces, restore),
+                               // not a shake: history resets, nothing applied
+const WIN_GAP       = .25;     // s — a sampling gap longer than this is a pause
+                               // (throttled tab, stalled frame): start over
+const WIN_POLL_MS   = 60;      // ms — idle sampler cadence while the pile
+                               // sleeps: two integer reads a tick, no layout,
+                               // no paint, no frame — only there to NOTICE
+
 /* ---- real hardware, in millimetres — on-screen scale derives from it.
    The r1 keeps the on-screen size it has always had (R1_CAP of the
    headline's cap height) and anchors the system; every other object's
@@ -1206,6 +1248,9 @@ let spilled = false;
 const target = { x:0, y:0 };
 const samples = [];
 let gravX = 0, gravY = G;   // gravity vector — device tilt may rotate it; |g| stays G
+let winAX = 0, winAY = 0;   // the shaken window's pseudo-force per unit mass
+                            // (px/s²) — the integrator sums it in BESIDE
+                            // gravity; gravX/gravY stay pure for every gate
 
 function seatRect(i){ return seats[i].getBoundingClientRect(); }
 
@@ -1590,6 +1635,7 @@ function goLive(){
   wakeAll();       // toys under the raining letters must notice
   render(now);     // position synchronously — no one-frame flash at the origin
   start();
+  winArm();        // from here on a shaken window can reach a sleeping pile
 }
 
 /* the fall begins once the name has had a moment to be read */
@@ -1836,6 +1882,165 @@ if(shakeBtn && hasTouch && typeof DeviceOrientationEvent !== "undefined"){
     if(!shakeBtn.classList.contains("live")) armTilt();
   });
 }
+
+/* ================================================================
+   Shake the window — the desktop's tilt. Drag the browser window
+   about the desktop and the pile inside is shaken like the contents
+   of a box: in the window's own (accelerating) frame every free body
+   feels the pseudo-force F = −m·a_window, so a yank left throws the
+   pile right, a brisk shake tosses it wall to wall, and a slow,
+   smooth drift — constant velocity, zero acceleration — leaves a
+   sleeping pile exactly where it was, which is the physically honest
+   tell. Letters, pills and toys alike; the held body too (it swings
+   on its pin — the pin wins).
+   The window's place on the desktop is read off window.screenX/Y
+   (CSS px, integers) into a short ring; the acceleration is a three-
+   point second difference over ≥WIN_STENCIL spacings (wider than
+   frame-to-frame, so screenX's integer quantization stays far under
+   the wake gate), low-passed by ACCEL_LP, clamped to WIN_ACC_MAX and
+   summed into the integrator as (winAX, winAY) — beside gravity and
+   never inside it: gravX/gravY stay the real down (+ tilt) vector
+   every settle gate reads. Plausibility: a jump past WIN_TELEPORT_FRAC
+   of the screen in one sample, a viewport resize (maximize, snap,
+   restore), a sampling gap past WIN_GAP, and the tab coming back from
+   hidden are teleports, not shakes — the history resets and nothing is
+   applied; the first two readings after a tab return (visible again,
+   or focus regained) are dropped as suspect; and the force itself
+   runs ONE reading late, so a jump the very next reading exposes as a
+   teleport (a browser may hand the renderer the new screenX a frame
+   before the new viewport size) is never felt. Past WIN_WAKE_A the
+   whole pile wakes (wakeAll — the tilt path's own wake) so a settled
+   pile answers a sudden shake; under it sleepers sleep on.
+   Battery: nothing here keeps rAF alive. While the loop runs, step()
+   samples for free; while everything sleeps an idle setInterval at
+   WIN_POLL_MS reads two integers — no layout, no paint, no frame —
+   purely to NOTICE a shake and hand off to start(), and it is torn
+   down whenever the document is hidden. Desktop only: a fine pointer
+   that hovers (phones and tablets have tilt, and their screenX is a
+   constant anyway); capability is confirmed lazily, the first time
+   screenX is actually seen to change. Reduced motion never reaches
+   this code — the IIFE returned long ago.
+   ================================================================ */
+const winMQ  = matchMedia("(hover: hover) and (pointer: fine)");
+let winOn    = winMQ.matches && Number.isFinite(window.screenX);   // explicit: NaN is not a position
+let winLastMoved = false;        // did the previous reading move? (from-rest gate)
+let winCap   = false;              // screenX has actually been seen to change
+let winSkip  = 0;                  // readings still to drop after a tab return
+let winPX    = 0, winPY = 0;       // the force THIS reading measured — applied
+                                   // next reading, once that one has vouched
+                                   // this was no teleport
+let winLpX   = 0, winLpY = 0;      // low-passed window acceleration, px/s²
+let winLW    = 0, winLH = 0;       // viewport size at the last sample
+let winTimer = 0;                  // the idle sampler
+const winRX = new Float64Array(WIN_RING), winRY = new Float64Array(WIN_RING),
+      winRT = new Float64Array(WIN_RING);   // the ring: x, y, t (ms)
+let winRN = 0, winRH = 0;          // …its fill and its newest slot
+
+function winClear(){
+  winRN = 0; winLpX = 0; winLpY = 0;
+  winPX = 0; winPY = 0; winAX = 0; winAY = 0;
+  winLastMoved = false;
+}
+
+/* one reading of the window's place on the screen → this frame's winAX,
+   winAY. Returns true while the acceleration is a real shake (past
+   WIN_WAKE_A); the caller decides who wakes. Allocates nothing. */
+function winSample(now){
+  if(!winOn) return false;
+  const x = window.screenX, y = window.screenY;
+  if(!Number.isFinite(x) || !Number.isFinite(y)){   // not a position — drop it
+    winClear(); winAX = 0; winAY = 0; winPX = 0; winPY = 0;
+    return false;
+  }
+  const W = innerWidth, H = innerHeight;
+  if(winSkip > 0){                 // a reading we were told not to trust: drop
+    winSkip--;                     // it, apply nothing (history stays — a size
+    winPX = 0; winPY = 0; winAX = 0; winAY = 0;   // change meanwhile is still
+    return false;                  // caught against the last trusted one)
+  }
+  if(winRN > 0){
+    const pt = winRT[winRH];
+    if(now <= pt) return false;    // the clock must advance between samples
+    const dx = x - winRX[winRH], dy = y - winRY[winRH];
+    const adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    if(adx > 0 || ady > 0) winCap = true;          // it moves: capable
+    // from rest (the previous reading did not move) to a speed no hand
+    // reaches in one sample: a hotkey, a snap, a window dragged back into
+    // view — a teleport, never a shake
+    const dtS = (now - pt) / 1000;
+    const fromRest = winRN < 2 || winLastMoved === false;
+    const vS = dtS > 0 ? Math.hypot(adx, ady) / dtS : 0;
+    winLastMoved = adx > 0 || ady > 0;
+    if(now - pt > WIN_GAP * 1000 || W !== winLW || H !== winLH ||
+       adx > WIN_TELEPORT_FRAC * (screen.width || 1e9) ||
+       ady > WIN_TELEPORT_FRAC * (screen.height || 1e9) ||
+       (fromRest && vS > WIN_REST_V))
+      winClear();                  // a teleport, a resize, a pause: not a shake
+  }
+  winLW = W; winLH = H;
+  winRH = (winRH + 1) % WIN_RING;
+  winRX[winRH] = x; winRY[winRH] = y; winRT[winRH] = now;
+  if(winRN < WIN_RING) winRN++;
+  if(!winCap || winRN < 3) return false;
+  // the three samples: now, the newest ≥WIN_STENCIL before it, the newest
+  // ≥WIN_STENCIL before that — actual timestamps, whatever the cadence
+  let i1 = -1, i2 = -1, t1 = 0;
+  for(let k = 1; k < winRN; k++){
+    const i = (winRH - k + WIN_RING) % WIN_RING, tk = winRT[i];
+    if(i1 < 0){ if(now - tk >= WIN_STENCIL * 1000){ i1 = i; t1 = tk; } }
+    else if(t1 - tk >= WIN_STENCIL * 1000){ i2 = i; break; }
+  }
+  if(i2 < 0) return false;         // not enough history yet
+  const t2 = winRT[i2];
+  const d01 = (now - t1) / 1000, d12 = (t1 - t2) / 1000, dm = (now - t2) / 2000;
+  const ax = ((x - winRX[i1]) / d01 - (winRX[i1] - winRX[i2]) / d12) / dm;
+  const ay = ((y - winRY[i1]) / d01 - (winRY[i1] - winRY[i2]) / d12) / dm;
+  // low-pass, cadence-honest (display rate inside step(), WIN_POLL_MS idle)
+  const pdt = (now - winRT[(winRH - 1 + WIN_RING) % WIN_RING]) / 1000;
+  const k = 1 - Math.exp(-pdt / ACCEL_LP);
+  winLpX += (ax - winLpX) * k;
+  winLpY += (ay - winLpY) * k;
+  let am = Math.hypot(winLpX, winLpY);
+  if(am > WIN_ACC_MAX){            // a bounded shove, never a launch into orbit
+    const s = WIN_ACC_MAX / am;
+    winLpX *= s; winLpY *= s; am = WIN_ACC_MAX;
+  }
+  winAX = winPX; winAY = winPY;        // last reading's force is this frame's…
+  winPX = -winLpX; winPY = -winLpY;    // …this reading's waits for the next to
+  return am > WIN_WAKE_A;              // vouch (the wake itself is immediate)
+}
+/* a real shake reaches a sleeping pile: wake it whole. (An awake pile
+   under a sustained shake is left to its own clocks — nothing stills
+   inside a shake anyway.) */
+function winShaken(){
+  for(const b of bodies) if(b.sleeping){ wakeAll(); return; }
+}
+/* the idle sampler: armed from the first spill, it does nothing while
+   the loop is up (step() samples then) and only ever hands off to start() */
+function winIdle(){
+  if(raf || document.hidden) return;
+  if(winSample(performance.now())){ wakeAll(); start(); }
+}
+function winArm(){
+  if(!winOn || !spilled || winTimer || document.hidden) return;
+  winTimer = setInterval(winIdle, WIN_POLL_MS);
+}
+function winDisarm(){
+  if(winTimer){ clearInterval(winTimer); winTimer = 0; }
+}
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){ winDisarm(); winClear(); return; }
+  winClear(); winSkip = 2;         // back from hidden: the window may have been
+  winArm();                        // anywhere meanwhile — the first two readings
+});                                // are suspect and the history is worthless
+addEventListener("focus", () => { winSkip = 2; });   // focus regained: the first
+                                   // two readings are suspect (the history is
+                                   // not — a blurred window is still sampled)
+if(winMQ.addEventListener)         // a mouse plugged in, a laptop folded flat
+  winMQ.addEventListener("change", e => {
+    winOn = e.matches && Number.isFinite(window.screenX);
+    if(winOn) winArm(); else { winDisarm(); winClear(); }
+  });
 
 /* ================================================================
    Pills — the two chips under the name are rigid bodies too. They
@@ -2595,6 +2800,11 @@ function step(t){
   lastT = t;
   const W = innerWidth, H = innerHeight;
 
+  // where is the window on the desktop? (desktop only — see the shaken-
+  // window block.) One read per display frame, shared by every substep;
+  // a real shake reaches the sleepers
+  if(winSample(t)) winShaken();
+
   gPerpX = -gravY / G; gPerpY = gravX / G;   // across-gravity unit axis
 
   // every display frame splits into substeps of at most MAX_STEP: the
@@ -2626,8 +2836,8 @@ function subStep(dt, t, W, H, first){
     b.iM = b.sleeping ? 0 : (b === held ? b.invM / HOLD_MASS : b.invM);
     b.iI = b.sleeping ? 0 : (b === held ? b.invI / HOLD_MASS : b.invI);
     if(!b.sim || b.sleeping) continue;
-    b.vx += gravX * dt;
-    b.vy += gravY * dt;
+    b.vx += (gravX + winAX) * dt;   // gravity + the shaken window (the held
+    b.vy += (gravY + winAY) * dt;   // body feels both; its pin wins)
     const dmp = 1 - LIN_DAMP * dt;
     b.vx *= dmp; b.vy *= dmp;
     b.va *= 1 - ANG_DAMP * dt;
