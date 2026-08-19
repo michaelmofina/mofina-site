@@ -478,6 +478,7 @@ body.grabbing{ cursor:grabbing; user-select:none; -webkit-user-select:none; }
 <div class="devpanel" id="devpanel" hidden aria-hidden="true">
   <label><span>name</span><input type="range" id="devName" min="0" max="6" step="1" value="2"><output id="devNameV">400</output></label>
   <label><span>top</span><input type="range" id="devTop" min="0" max="6" step="1" value="3"><output id="devTopV">500</output></label>
+  <label><span>inertia</span><input type="range" id="devInertia" min="0" max="40" step="1" value="13"><output id="devInertiaV">1.3</output></label>
   <div class="devsw" id="devAccents"></div>
 </div>
 
@@ -535,6 +536,16 @@ if(devPanel && location.hash === "#dev"){
     dispatchEvent(new Event("resize"));   // re-measure seats, rebuild hulls
   });
   wire("devTop",  "--w-top");
+  // inertia — how much of the window's velocity change the pile keeps
+  // (1.0 = strict box-on-a-table physics; more = punchier shakes AND
+  // sloshier drags). Talks to the physics block through a setter it
+  // publishes; under reduced motion there is no physics, so nothing to set.
+  const inI = document.getElementById("devInertia"), inO = document.getElementById("devInertiaV");
+  inI.addEventListener("input", () => {
+    const k = +inI.value / 10;
+    inO.textContent = k.toFixed(1);
+    if(window.__setInertia) window.__setInertia(k);
+  });
 
   /* accent swatches: click to lock one for good, ↻ to go back to
      a fresh colour every visit */
@@ -1128,7 +1139,7 @@ const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
    one it is re-aimed. The integrator adds it beside gravity
    (gravX/gravY stay the pure down vector every settle gate reads) and
    the loop runs while any of it is left. ---- */
-const WIN_K_SHAKE   = 1.3;      // share of the window's velocity the pile is
+let   WIN_K_SHAKE   = 1.3;      // share of the window's velocity the pile is
                                // handed, opposite in sign (1 = ideal inertia:
                                // the contents stay put in the world while the
                                // window moves around them). Measured in the
@@ -1136,6 +1147,7 @@ const WIN_K_SHAKE   = 1.3;      // share of the window's velocity the pile is
                                // live drag (Chrome, 116ms median gap; Safari
                                // sparser), so each observed jump ÷ its gap IS
                                // the window's velocity over that stretch
+window.__setInertia = k => { WIN_K_SHAKE = Math.max(0, Math.min(4, k)); };  // #dev slider
 const WIN_TAU       = .12;     // s — the pull's decay time constant at the
                                // cadence that matters, and its cap: a shove's
                                // momentum drains as a pull of Δv/τ that fades
