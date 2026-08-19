@@ -1224,6 +1224,12 @@ const WIN_SPILL_V   = 500;     // px/s — the shove that spills a SEATED name: 
                                // (drags to ~600px/s stay under it at every
                                // cadence). A sleeping pile wakes to any kick;
                                // a name at rest takes a real one
+const WIN_RATTLE_T  = .35;     // s — a reversal this soon after the last one
+                               // is a hard shake; the kick is lifted toward…
+const WIN_RATTLE_G  = 3.2;     // …this multiple at back-to-back reversals.
+                               // Compensates the ~8/s sensor's aliasing,
+                               // which shrinks observed jumps exactly when
+                               // the hand shakes fastest
 const WIN_STOP_T    = .28;     // s — the window has not moved for this long:
                                // it has stopped (the longest gap between
                                // position updates during a live drag is
@@ -2088,6 +2094,7 @@ let winTC    = 0;                  // …and when it was first seen there (ms):
 let winTS    = 0;                  // when the sampler last ran (stall detection)
 let winLastMoved = false;
 let winVX = 0, winVY = 0;          // the window's velocity as of the last reading
+let winRevT = -1e9;                // when the window's velocity last reversed
 let winSkip  = 0;                  // readings still to drop after a tab return
 let winPX    = 0, winPY = 0;       // the shove THIS reading measured — applied
 let winPT    = WIN_TAU;            // next reading, once that one has vouched
@@ -2098,7 +2105,7 @@ let winTimer = 0, winRate = 0;     // the idle sampler and its current cadence
 
 function winClear(){               // forget the baseline and the pending shove,
   winHas = false; winPX = 0; winPY = 0; winLastMoved = false;   // and the shoves
-  winMX = 0; winMY = 0; winVX = 0; winVY = 0;                   // in flight
+  winMX = 0; winMY = 0; winVX = 0; winVY = 0; winRevT = -1e9;   // in flight
 }
 
 /* one reading of the window's place on the screen. Lands the shove the
@@ -2161,8 +2168,21 @@ function winSample(now){
     // cycle. No shake detector — the difference IS the physics.
     const vx = dx / dtObs, vy = dy / dtObs;      // the window's velocity now
     const ax = vx - winVX, ay = vy - winVY;      // its change since last seen
+    // a FAST shake aliases against the ~8/s position cadence: the window
+    // goes out and mostly back between readings, so its observed jumps —
+    // and the velocity changes read from them — shrink just as the hand
+    // works hardest. What survives aliasing is the rate of reversals:
+    // a reversal hot on the heels of the last one means a hard shake, so
+    // the kick is lifted toward full strength in proportion (and a lone
+    // reversal — a drag turning round — is not lifted at all)
+    let boost = 1;
+    if(vx * winVX + vy * winVY < 0){             // a reversal
+      const since = (now - winRevT) / 1000;
+      if(since < WIN_RATTLE_T) boost = 1 + (WIN_RATTLE_G - 1) * (1 - since / WIN_RATTLE_T);
+      winRevT = now;
+    }
     winVX = vx; winVY = vy;
-    let px = -WIN_K_SHAKE * ax, py = -WIN_K_SHAKE * ay;
+    let px = -WIN_K_SHAKE * ax * boost, py = -WIN_K_SHAKE * ay * boost;
     let m = Math.hypot(px, py);
     if(m > WIN_KICK_MAX){ const c = WIN_KICK_MAX / m; px *= c; py *= c; m = WIN_KICK_MAX; }
     if(m >= WIN_KICK_MIN){ winPX = px; winPY = py;
@@ -2187,6 +2207,23 @@ function winSample(now){
 function winKick(dvx, dvy, tau){
   winLastK = Math.hypot(dvx, dvy);
   for(const b of bodies) if(b.sleeping){ wakeAll(); break; }
+  // a fast shake reverses faster than the pull drains: if the new shove
+  // OPPOSES the momentum still in flight, the two must not cancel into
+  // stillness — that leftover was already pushing the pile, so it lands
+  // now, whole, as its own jolt, and the new shove starts clean. A rattle
+  // is every reversal felt, not their sum (which is ~zero).
+  if(dvx * winMX + dvy * winMY < 0){
+    const ex = winMX, ey = winMY;           // spend the old pull at once
+    const tNow = performance.now();
+    for(const b of bodies){
+      if(!simActive(b, tNow)) continue;
+      const v0 = Math.hypot(b.vx, b.vy);
+      b.vx += ex; b.vy += ey;
+      const v1 = Math.hypot(b.vx, b.vy), cap = Math.max(v0, WIN_KICK_MAX);
+      if(v1 > cap){ const c = cap / v1; b.vx *= c; b.vy *= c; }
+    }
+    winMX = 0; winMY = 0;
+  }
   winMX += dvx; winMY += dvy; winTau = tau;
   const m = Math.hypot(winMX, winMY);
   if(m > WIN_KICK_MAX){ const c = WIN_KICK_MAX / m; winMX *= c; winMY *= c; }
