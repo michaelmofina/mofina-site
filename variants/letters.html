@@ -1080,40 +1080,113 @@ const PILL_DENS  = 1.1;    // pills are lighter chips than the toys
 const TAP_PX     = 8;      // pointer travel under this…
 const TAP_MS     = 350;    // …and quicker than this is a tap, not a drag
 
-/* ---- the shaken window (desktop): window.screenX/Y → impulses.
-   WHAT THE PAGE CAN ACTUALLY SEE — measured on a Mac with a probe page
-   during a real title-bar shake: the frame loop and the timers run
+/* ---- the shaken window (desktop): window.screenX/Y → a continuous
+   inertial force, re-aimed by every observed jump.
+   WHAT THE PAGE CAN ACTUALLY SEE — measured on a Mac with probe pages
+   during real title-bar shakes: the frame loop and the timers run
    normally throughout (rAF ~60/s, a 60ms timer ticking on time), but
    window.screenX/Y update only SPORADICALLY while macOS drags a window.
-   Safari: 41 distinct positions in 20s, gaps up to 1066ms between
-   observed moves. Chrome: 32 positions in 8.5s, gaps to 233ms. Call it
-   2–5 readings a second, irregular — against a hand shaking at 3–6Hz.
-   (CDP-driven moves update screenX every frame, which is why every
-   earlier harness passed while the real thing did next to nothing.)
+   Chrome (second probe, a 16s live shake): screenX changed 34 times,
+   median gap 116ms, worst 150ms — ~8.6 readings/s, no long gaps; a
+   microtask loop polling 8.9M times saw the identical 34 changes (the
+   browser updates the value ~8×/s while dragging — there is no faster
+   channel; screenLeft is an alias; no resize, no blur; mousemove does
+   not reach the page during a title-bar drag). Safari is sparser: 41
+   positions in 20s, gaps to 1066ms — 2–5 readings/s, irregular. A hand
+   shakes at 3–6Hz. (CDP-driven moves update screenX every frame, which
+   is why every earlier harness passed while the real thing did next
+   to nothing.)
    So the window's velocity, its acceleration, its reversals within a
    window of time are all unreadable here: an estimator that needs
    several readings inside a fraction of a second is structurally
    blind. What the page CAN see is a JUMP — the position differs from
    the last reading by (dx,dy) after a silence of dtObs — and a jump is
-   read as an impulse delivered to the pile, once:
+   read as a shove of the pile, worth
      Δv = −WIN_K_SHAKE · (dx,dy) · f(dtObs) · g(|dx,dy| ÷ dtObs) · h(dir)
    f discounts a long silence, g a slow implied speed, h a jump that
    merely CONTINUES the window's previous displacement (a drag's do, a
    shake's alternate — at two readings a second a ±100px shake and a
    careful drag both show ~100px jumps at ~250px/s; direction is the
    one tell left, and it is read per jump, at any cadence). The product
-   is the kick's strength; a kick under WIN_KICK_MIN is not a kick at
-   all. The same sum of jumps arrives whether a platform reports every
+   is the shove's momentum; under WIN_KICK_MIN it is no shove at all.
+   The same sum of jumps arrives whether a platform reports every
    frame or three times a second, so the shove per half-swing is
-   cadence-independent by construction. ---- */
-const WIN_K_SHAKE   = 16;      // px/s of velocity change per px of observed
+   cadence-independent by construction.
+   DELIVERY: eight readings a second is film speed for a force and a
+   stutter for a kick. Stepped straight into the velocities (one Δv per
+   jump) the pile jolted at each reading and coasted between them —
+   "reacts, but not natural". So a jump's Δv is delivered as a FORCE:
+   it is ADDED to the momentum still in flight (winMX/winMY — jumps the
+   same way stack, a reversal flips through zero), and that momentum
+   drains into the pile exponentially, as a pull of winM/winTau that
+   fades by e every winTau — the silence the jump crossed, clamped to
+   [WIN_TAU_MIN, WIN_TAU]: .12s at Chrome's cadence, two frames at a
+   per-frame one. The pull's time-integral is exactly the shove, so
+   every shove carries the momentum the impulse design's kick did,
+   spread over about one reading gap instead of landing in one frame.
+   Between readings the force is never zero, only fading; at the next
+   one it is re-aimed. The integrator adds it beside gravity
+   (gravX/gravY stay the pure down vector every settle gate reads) and
+   the loop runs while any of it is left. ---- */
+const WIN_K_SHAKE   = 20;      // px/s of velocity change per px of observed
                                // jump at full strength: an 80px jump is a
                                // 1280px/s shove, 150px is 2400 — a vigorous
-                               // shake (80–150px jumps, 4–5Hz, seen 3–5×/s)
+                               // shake (80–150px jumps, 4–5Hz, seen 3–8×/s)
                                // throws the pile wall to wall within the
                                // second. (Per half-swing of a 4Hz shake the
                                // physically exact figure is 2πf ≈ 25; 16
                                // reads hard without reading as a slam)
+const WIN_TAU       = .12;     // s — the pull's decay time constant at the
+                               // cadence that matters, and its cap: a shove's
+                               // momentum drains as a pull of Δv/τ that fades
+                               // by e every τ, τ being the silence the jump
+                               // crossed (≈ the platform's reading gap)
+                               // clamped to [WIN_TAU_MIN, WIN_TAU]. Chrome
+                               // reads every 116ms (90–150): 63% of a shove
+                               // lands within one gap and the pull is still
+                               // at 19–47% (median 37%) when the next reading
+                               // re-aims it — never zero between readings,
+                               // which is the whole point — and a lone shove
+                               // is spent in ~.5s. The 4Hz content of a shake
+                               // reaches the pile at 1/√(1+(2πf·τ)²) of the
+                               // kick build's: .31 at .12 — and the throw
+                               // measures .8–.85 of it (walls, gravity and
+                               // collisions carry the rest, and a shove's
+                               // momentum is never lost, only spread);
+                               // shorter reads punchier and closer to the old
+                               // jolts, longer mushier. Safari's longer
+                               // silences (150–1000ms) are capped here on
+                               // purpose: spread over its whole gap a sparse
+                               // shove would cancel against the next and the
+                               // pile would sway, not shake — so Safari gets
+                               // pulses: .12s pushes that fade to a few % by
+                               // the next reading, never to zero inside ~.7s
+const WIN_TAU_MIN   = .03;     // s — …and its floor, for a platform that
+                               // reports every frame (CDP-driven moves; any
+                               // OS that updates screenX per frame): there
+                               // the shoves themselves arrive at frame rate
+                               // and ARE a continuous force — two frames of
+                               // decay only rounds the corners (4Hz content
+                               // at .8) without the .12 low-pass eating half
+                               // the throw. Frame-rate independent either
+                               // way: each substep integrates the decay
+                               // exactly (subStep), so a shove delivers the
+                               // same momentum at 30, 60 and 120Hz
+const WIN_A_FLOOR   = 2;       // px/s² — a pull under this is spent: zeroed,
+                               // and the loop may stop once the pile sleeps
+                               // (it is .24px/s of momentum at τ = .12 —
+                               // nothing; a body under 2px/s² gains .03px/s a
+                               // frame and static friction holds it). Low so
+                               // the pull bridges a shake's HOLES: at the
+                               // 4Hz/8.6Hz aliasing beat 3–4 readings in a
+                               // row (to ~.5s) land as tiny or same-direction
+                               // jumps the gates drop, and the last shove
+                               // before the hole is a weak one — 100px/s of
+                               // shove fades to 2px/s² in .72s at τ = .12 (to
+                               // 40 in .36s: measured holes bottomed at 8).
+                               // A capped shove is spent in
+                               // WIN_TAU·ln(WIN_KICK_MAX/τ/2) ≈ 1.1s, and the
+                               // loop outlives a sleeping pile by under that
 const WIN_DT_REF    = .5;      // s — a silence up to this is a shake's own
                                // cadence on the sparsest platform measured
                                // (Safari: 2–3 readings a second): the jump
@@ -1158,21 +1231,25 @@ const WIN_H_MIN     = .08;     // what a jump that CONTINUES that direction is
                                // 360px jump — lands as a 460px/s murmur)
 const WIN_REV_MIN   = 4;       // px — a displacement under this has no
                                // direction to speak of: h = 1 (no evidence)
-const WIN_KICK_MAX  = .5 * MAXV;  // px/s — the most velocity one kick may add,
-                               // and the most it may leave a body moving at
-                               // (a 153px jump at full strength; half the
-                               // fling cap): nothing is launched into orbit —
-                               // what the old per-frame force cap meant, per
-                               // impulse now. Measured over 48 sparse shakes:
-                               // at .6 the crushed corner heaps a violent
-                               // throw leaves took >8s to sleep in 29% of
-                               // runs, at .5 in 19%, for a throw 15% shorter
-const WIN_KICK_MIN  = 100;     // px/s — a kick under this slides a letter
+const WIN_KICK_MAX  = .5 * MAXV;  // px/s — the most momentum one shove may
+                               // carry, the most that may be in flight at
+                               // once (|winM| is capped here as shoves
+                               // stack), and the most the pull may leave a
+                               // body moving at — per substep, at the cap or
+                               // at whatever it already had: the force never
+                               // launches, never brakes. (A 153px jump at
+                               // full strength; half the fling cap.)
+                               // Measured over 48 sparse shakes of the kick
+                               // build: at .6 the crushed corner heaps a
+                               // violent throw leaves took >8s to sleep in
+                               // 29% of runs, at .5 in 19%, for a throw 15%
+                               // shorter
+const WIN_KICK_MIN  = 100;     // px/s — a shove under this slides a letter
                                // under 3px: not worth waking anyone for — not
                                // applied, wakes nothing. The qualifying line:
                                // a slow drag's small, discounted jumps land
                                // under it at every cadence
-const WIN_SPILL_V   = 500;     // px/s — the kick that spills a SEATED name: a
+const WIN_SPILL_V   = 500;     // px/s — the shove that spills a SEATED name: a
                                // shove (a 31px jump at full strength, or any
                                // reversed ±100 swing), not the murmur a brisk
                                // reposition after Escape leaves on the toys
@@ -1333,6 +1410,14 @@ let spilled = false;
 const target = { x:0, y:0 };
 const samples = [];
 let gravX = 0, gravY = G;   // gravity vector — device tilt may rotate it; |g| stays G
+let winMX = 0, winMY = 0;   // the shaken window's shoves still in flight, as
+                            // momentum (px/s) — the integrator delivers it
+                            // BESIDE gravity as a pull of winM/winTau, fading
+                            // by e every winTau, exactly, every substep;
+                            // gravX/gravY stay pure for every gate. Zero
+                            // whenever no shove is in flight
+let winTau = WIN_TAU;       // the pull's current decay time constant (s): the
+                            // silence the last shove's jump crossed, clamped
 
 function seatRect(i){ return seats[i].getBoundingClientRect(); }
 
@@ -1980,36 +2065,45 @@ if(shakeBtn && hasTouch && typeof DeviceOrientationEvent !== "undefined"){
    velocity and no acceleration — only the last observed position, when
    it was first seen there, and a short ring of the readings that moved.
    Every reading that differs is a jump (dx,dy) across a silence dtObs,
-   and a jump is an impulse: one Δv = −WIN_K_SHAKE·(dx,dy)·f·g·h stepped
-   into every free body's velocity ONCE (winKick), capped per kick at
-   WIN_KICK_MAX, dropped under WIN_KICK_MIN. f, g and h are the
-   judgment — silence, implied speed, direction against the window's
-   previous displacement: a 100px jump that reverses the last one is a
-   shove whether it arrives 100 or 500ms later; 24px every 120ms, or
-   200px every second, is a careful 200px/s drag and is nothing at any
-   cadence; a brisk drag's jumps continue one another and land as a
-   murmur. Gravity stays pure: gravX/gravY are the real down (+ tilt)
-   vector every settle gate reads, and the integrator never sees the
-   window at all.
+   and a jump is a shove: Δv = −WIN_K_SHAKE·(dx,dy)·f·g·h of momentum,
+   capped at WIN_KICK_MAX, dropped under WIN_KICK_MIN. f, g and h are
+   the judgment — silence, implied speed, direction against the
+   window's previous displacement: a 100px jump that reverses the last
+   one is a shove whether it arrives 100 or 500ms later; 24px every
+   120ms, or 200px every second, is a careful 200px/s drag and is
+   nothing at any cadence; a brisk drag's jumps continue one another
+   and land as a murmur. The shove is DELIVERED as a force (winKick):
+   Δv joins the momentum in flight (winMX/winMY), which the integrator
+   drains into every body in play beside gravity every substep as a
+   pull of winM/winTau, fading by e^(−dt/winTau) — winTau the silence
+   the jump crossed, clamped to [WIN_TAU_MIN, WIN_TAU]. The pull's
+   integral is the shove, spread over about one reading gap, re-aimed
+   by the next reading before it has faded, never zero in between.
+   Gravity stays pure: gravX/gravY are the real down (+ tilt) vector
+   every settle gate reads; the pull rides beside it, only in the
+   integrator.
    Plausibility: a jump past WIN_TELEPORT_FRAC of the screen, a from-
    rest jump faster than WIN_REST_V, a viewport resize (maximize, snap,
    restore), a sampler silence past WIN_GAP, and the tab coming back
    from hidden are teleports, not shakes — the baseline resets and
    nothing is applied; the first two readings after a tab return
    (visible again, or focus regained) are dropped as suspect; and a
-   kick lands ONE reading late, so a jump the very next reading exposes
-   as a teleport (a browser may hand the renderer the new screenX a
-   frame before the new viewport size) is never felt. A landing kick
-   wakes the whole pile (wakeAll — the tilt path's own wake) and, past
-   WIN_SPILL_V, spills a seated name: the window is the first way to
-   play. A slow drag's sparse, long-silence readings wake nothing.
-   Battery: nothing here keeps rAF alive. While the loop runs, step()
-   samples for free; while everything sleeps an idle setInterval reads
-   two integers — no layout, no paint, no frame — purely to NOTICE a
-   shake and hand off to start(): every WIN_POLL_MS while the window
-   sits, every WIN_POLL_HOT_MS for the WIN_GAP after it last moved (a
-   jump's silence is timed between polls, and the judgment hangs on
-   that timing), and it is torn down whenever the document is hidden.
+   shove lands ONE reading late, so a jump the very next reading
+   exposes as a teleport (a browser may hand the renderer the new
+   screenX a frame before the new viewport size) is never felt. A
+   landing shove wakes the whole pile (wakeAll — the tilt path's own
+   wake) and, past WIN_SPILL_V, spills a seated name: the window is the
+   first way to play. A slow drag's sparse, long-silence readings wake
+   nothing.
+   Battery: nothing here keeps rAF alive beyond the pull itself. While
+   the loop runs, step() samples for free and the loop stays up while
+   any pull is left (WIN_A_FLOOR — about a second after the last
+   shove); while everything sleeps an idle setInterval reads two
+   integers — no layout, no paint, no frame — purely to NOTICE a shake
+   and hand off to start(): every WIN_POLL_MS while the window sits,
+   every WIN_POLL_HOT_MS for the WIN_GAP after it last moved (a jump's
+   silence is timed between polls, and the judgment hangs on that
+   timing), and it is torn down whenever the document is hidden.
    Desktop only: a fine pointer that hovers (phones and tablets have
    tilt, and their screenX is a constant anyway). Reduced motion never
    reaches this code — the IIFE returned long ago.
@@ -2022,21 +2116,21 @@ let winTC    = 0;                  // …and when it was first seen there (ms):
                                    // the silence the next jump is measured over
 let winTS    = 0;                  // when the sampler last ran (stall detection)
 let winLastMoved = false;
-let winRevT = -1e9;                // time of the last direction reversal          // did the previous reading move? (from-rest gate)
+let winRevT = -1e9;                // time of the last direction reversal
 let winSkip  = 0;                  // readings still to drop after a tab return
-let winPX    = 0, winPY = 0;       // the kick THIS reading measured — applied
-                                   // next reading, once that one has vouched
-                                   // this was no teleport
-let winLastK = 0;                  // |Δv| of the kick that last landed (px/s)
+let winPX    = 0, winPY = 0;       // the shove THIS reading measured — applied
+let winPT    = WIN_TAU;            // next reading, once that one has vouched
+                                   // this was no teleport — and its τ
+let winLastK = 0;                  // |Δv| of the shove that last landed (px/s)
 let winLW    = 0, winLH = 0;       // viewport size at the last sample
 let winTimer = 0, winRate = 0;     // the idle sampler and its current cadence
 const winRX = new Float64Array(WIN_RING), winRY = new Float64Array(WIN_RING),
       winRT = new Float64Array(WIN_RING);   // the readings that moved: x, y, t
 let winRN = 0, winRH = 0;          // …their count and the newest slot
 
-function winClear(){               // forget the baseline, the history and the pending kick
-  winHas = false; winRN = 0; winPX = 0; winPY = 0; winLastMoved = false;
-  winRevT = -1e9;
+function winClear(){               // forget the baseline, the history, the pending
+  winHas = false; winRN = 0; winPX = 0; winPY = 0; winLastMoved = false;   // shove and
+  winRevT = -1e9; winMX = 0; winMY = 0;                                    // the shoves in flight
 }
 function winPush(t, x, y){         // a reading that moved (or a fresh baseline) joins the history
   winRH = (winRH + 1) % WIN_RING;
@@ -2044,11 +2138,11 @@ function winPush(t, x, y){         // a reading that moved (or a fresh baseline)
   if(winRN < WIN_RING) winRN++;
 }
 
-/* one reading of the window's place on the screen. Lands the kick the
+/* one reading of the window's place on the screen. Lands the shove the
    previous reading measured (this one vouches it was no teleport),
-   reads this reading's jump into the next kick, and returns true when a
-   kick landed — the pile is then awake and moving; the caller decides
-   about a seated name. Allocates nothing. */
+   reads this reading's jump into the next shove, and returns true when
+   a shove landed — the pile is then awake and the pull re-aimed; the
+   caller decides about a seated name. Allocates nothing. */
 function winSample(now){
   if(!winOn) return false;
   const x = window.screenX, y = window.screenY;
@@ -2068,7 +2162,7 @@ function winSample(now){
   if(winHas && (W !== winLW || H !== winLH || now - tS > WIN_GAP * 1000))
     winClear();                    // a resize, a stalled sampler: a teleport
                                    // could hide in either — rebase, and the
-                                   // pending kick goes with it
+                                   // pending shove goes with it
   winLW = W; winLH = H;
   if(!winHas){                     // first reading (or first after a reset):
     winHas = true;                 // the baseline, nothing to compare against
@@ -2079,14 +2173,14 @@ function winSample(now){
   const dx = x - winX, dy = y - winY;
   const adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
   const moved = adx >= WIN_DEAD || ady >= WIN_DEAD;
-  const kx = winPX, ky = winPY;    // the last reading's kick — vouched for
-  winPX = 0; winPY = 0;            // below unless THIS reading is a teleport
+  const kx = winPX, ky = winPY, kt = winPT;   // the last reading's shove — vouched
+  winPX = 0; winPY = 0;            // for below unless THIS reading is a teleport
   if(moved){
     const dtObs = (now - winTC) / 1000;              // the silence this jump crossed
     const J = Math.hypot(adx, ady), v = J / dtObs;   // its size and implied speed, px/s
     // a jump no hand makes in one reading — a display switch, Spaces, a
     // hotkey, a snap, a window dragged back into view: a teleport, never a
-    // shake. Rebase; apply nothing, not even the last reading's kick
+    // shake. Rebase; apply nothing, not even the last reading's shove
     if(adx > WIN_TELEPORT_FRAC * (screen.width || 1e9) ||
        ady > WIN_TELEPORT_FRAC * (screen.height || 1e9) ||
        (!winLastMoved && v > WIN_REST_V)){
@@ -2096,7 +2190,7 @@ function winSample(now){
       return false;
     }
     if(dtObs <= WIN_GAP){          // (a silence past WIN_GAP: fresh baseline,
-      // the kick: the jump, discounted for a long silence (f), for a slow
+      // the shove: the jump, discounted for a long silence (f), for a slow
       // implied speed (g) and for continuing the window's previous
       // displacement (h); opposite to the jump; capped; dropped if it
       // would not move a letter
@@ -2124,62 +2218,65 @@ function winSample(now){
         break;
       }
       // a sparse observer sees fewer of a shake's jumps — each one it does
-      // see stands for more motion. Scale the kick up toward the dense
+      // see stands for more motion. Scale the shove up toward the dense
       // world's per-second total so Safari's 2–3 readings/s throw the pile
-      // the way Chrome's 5 do: sparse = observed silence over WIN_DT_REF/2
+      // the way Chrome's 8 do: sparse = observed silence over WIN_DT_REF/2
       const sparse = Math.min(WIN_SPARSE_MAX, Math.max(1, dtObs / (WIN_DT_REF * .5)));
       const st = f * g * h * sparse;
       if(st > 0){
         let px = -WIN_K_SHAKE * dx * st, py = -WIN_K_SHAKE * dy * st;
         let m = Math.hypot(px, py);
         if(m > WIN_KICK_MAX){ const c = WIN_KICK_MAX / m; px *= c; py *= c; m = WIN_KICK_MAX; }
-        if(m >= WIN_KICK_MIN){ winPX = px; winPY = py; }
+        if(m >= WIN_KICK_MIN){
+          winPX = px; winPY = py;  // …delivered over about the silence it
+          winPT = dtObs < WIN_TAU_MIN ? WIN_TAU_MIN : dtObs > WIN_TAU ? WIN_TAU : dtObs;   // crossed
+        }
       }
-    }                              // no kick — but the last one still lands)
+    }                              // no shove — but the last one still lands)
     winX = x; winY = y; winTC = now;
     winPush(now, x, y);
   }
   winLastMoved = moved;
   if(kx === 0 && ky === 0) return false;
-  winKick(kx, ky, now);
+  winKick(kx, ky, kt);
   return true;
 }
-/* a kick lands: every sleeper wakes (the whole pile, islands and all —
-   the tilt path's own wake), then every body in play takes the same
-   velocity step at once — the held body too: it jolts in the hand and
-   the pin takes it back. Bodies not yet in play (a seated name, letters
-   still waiting their turn in a spill) are left alone. Allocates nothing. */
-function winKick(dvx, dvy, now){
+/* a shove lands: every sleeper wakes (the whole pile, islands and all —
+   the tilt path's own wake), and the shove's momentum (dvx,dvy) joins
+   what is still in flight — a jump the same way as the last leans
+   harder, a reversal flips through zero — capped so the momentum in
+   flight never exceeds one shove's cap, and re-paced: from here the
+   whole of it drains over tau (what was in flight keeps its momentum,
+   only its pace changes). The integrator does the rest, every substep,
+   on every body in play (the held body too: it leans in the hand and
+   the pin takes it back); bodies not yet in play (a seated name,
+   letters still waiting their turn in a spill) feel whatever is left
+   of it once they are. Allocates nothing. */
+function winKick(dvx, dvy, tau){
   winLastK = Math.hypot(dvx, dvy);
   for(const b of bodies) if(b.sleeping){ wakeAll(); break; }
-  for(const b of bodies){
-    if(!simActive(b, now)) continue;
-    const v0 = Math.hypot(b.vx, b.vy);
-    b.vx += dvx; b.vy += dvy;
-    // kicks stack (a second one lands before the pile has slowed), so the
-    // SPEED a kick may leave a body at is bounded too — at the cap, or
-    // at whatever it already had: a kick never launches, never brakes
-    const v1 = Math.hypot(b.vx, b.vy);
-    const lim = v0 > WIN_KICK_MAX ? v0 : WIN_KICK_MAX;
-    if(v1 > lim){ b.vx *= lim / v1; b.vy *= lim / v1; }
-  }
+  winMX += dvx; winMY += dvy; winTau = tau;
+  const m = Math.hypot(winMX, winMY);
+  if(m > WIN_KICK_MAX){ const c = WIN_KICK_MAX / m; winMX *= c; winMY *= c; }
 }
-/* a kick has landed (the pile is awake and moving — winKick saw to it):
-   the loop must be running, and a seated name spills if the kick was a
-   real shove (WIN_SPILL_V) — the window being the first way to play; a
-   reposition's shuffle only stirs the toys under it. Called from the
-   idle sampler and from inside step() alike — there start() (goLive's
-   included) finds the frame already owned and does nothing. */
+/* a shove has landed (the pile is awake and the pull re-aimed — winKick
+   saw to it): the loop must be running, and a seated name spills if
+   the shove was a real one (WIN_SPILL_V) — the window being the first
+   way to play; a reposition's shuffle only stirs the toys under it.
+   Called from the idle sampler and from inside step() alike — there
+   start() (goLive's included) finds the frame already owned and does
+   nothing. */
 function winShaken(){
   if(mode === "seated" && winLastK >= WIN_SPILL_V){ clearTimeout(fallTimer); goLive(); }
   else start();
 }
 /* the idle sampler: armed from load, it does nothing while the loop is up
    (step() samples then) and only ever hands off through winShaken — or,
-   the reading it just took having measured a kick, to start(): the next
-   frame lands it (or vetoes it and stops again), a frame away rather
-   than a poll away. Its cadence follows the window: a frame's while the
-   window has moved within WIN_GAP, a poll's while it sits (winArm). */
+   the reading it just took having measured a shove, to start(): the
+   next frame lands it (or vetoes it and stops again), a frame away
+   rather than a poll away. Its cadence follows the window: a frame's
+   while the window has moved within WIN_GAP, a poll's while it sits
+   (winArm). */
 function winIdle(){
   if(raf || document.hidden) return;
   if(winSample(performance.now())) winShaken();
@@ -2975,8 +3072,8 @@ function step(t){
   const W = innerWidth, H = innerHeight;
 
   // where is the window on the desktop? (desktop only — see the shaken-
-  // window block.) One reading per display frame; a landing kick has
-  // already woken and shoved the pile — a seated name spills
+  // window block.) One reading per display frame; a landing shove has
+  // already woken the pile and re-aimed the pull — a seated name spills
   if(winSample(t)) winShaken();
 
   gPerpX = -gravY / G; gPerpY = gravX / G;   // across-gravity unit axis
@@ -2991,8 +3088,22 @@ function step(t){
 }
 
 function subStep(dt, t, W, H, first){
-  // gravity + drag on everything awake — the held body included: it
-  // stays fully dynamic, and the pin below is what carries it.
+  // the shaken window's pull over this substep: the share of the
+  // momentum in flight that drains in dt — (1 − e^(−dt/τ)) of it,
+  // EXACTLY, so a shove delivers the same momentum at 30, 60 and 120Hz
+  // — applied as its mean acceleration over the substep (wax/way), and
+  // what is left keeps fading. Spent under WIN_A_FLOOR of pull: zero,
+  // and the loop's busy test below stops asking for it
+  let wax = 0, way = 0;
+  if(winMX !== 0 || winMY !== 0){
+    const e = Math.exp(-dt / winTau), k = (1 - e) / dt;
+    wax = winMX * k; way = winMY * k;
+    winMX *= e; winMY *= e;
+    const fl = WIN_A_FLOOR * winTau;
+    if(winMX * winMX + winMY * winMY < fl * fl){ winMX = 0; winMY = 0; }
+  }
+  // gravity + the pull + drag on everything awake — the held body
+  // included: it stays fully dynamic, and the pin below is what carries it.
   // touch and penDeep clear only on the FIRST substep: they are what
   // the frame-rate code (airT, the pen-wake clock, the sleep window)
   // reads, and sampling just the last substep silently dropped every
@@ -3010,8 +3121,18 @@ function subStep(dt, t, W, H, first){
     b.iM = b.sleeping ? 0 : (b === held ? b.invM / HOLD_MASS : b.invM);
     b.iI = b.sleeping ? 0 : (b === held ? b.invI / HOLD_MASS : b.invI);
     if(!b.sim || b.sleeping) continue;
-    b.vx += gravX * dt;             // gravity (the shaken window arrives as
-    b.vy += gravY * dt;             // one-shot kicks — winKick — not a force)
+    b.vx += gravX * dt;             // gravity…
+    b.vy += gravY * dt;
+    if(wax !== 0 || way !== 0){     // …and the shaken window's pull beside it.
+      // The pull may not leave a body faster than WIN_KICK_MAX, or than
+      // it already was (shoves stack in flight): it never launches, never
+      // brakes — the kick build's rule, per substep now
+      const v0 = Math.hypot(b.vx, b.vy);
+      b.vx += wax * dt; b.vy += way * dt;
+      const v1 = Math.hypot(b.vx, b.vy);
+      const lim = v0 > WIN_KICK_MAX ? v0 : WIN_KICK_MAX;
+      if(v1 > lim){ b.vx *= lim / v1; b.vy *= lim / v1; }
+    }
     const dmp = 1 - LIN_DAMP * dt;
     b.vx *= dmp; b.vy *= dmp;
     b.va *= 1 - ANG_DAMP * dt;
@@ -3416,6 +3537,7 @@ function finishStep(dt, t, W, H){
     anyAwake = true;
 
   const busy = held || mode === "homing" || anyAwake || anyWaiting ||
+               winMX !== 0 || winMY !== 0 ||   // the window's shoves are still in flight
                any3DBusy();            // a 3D toy's pose may still be settling
   raf = busy ? requestAnimationFrame(step) : 0;
 }
